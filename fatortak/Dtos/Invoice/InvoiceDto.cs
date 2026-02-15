@@ -9,6 +9,8 @@ namespace fatortak.Dtos.Invoice
         public string? InvoiceNumber { get; set; }
         public Guid? CustomerId { get; set; }
         public Guid? BranchId { get; set; }
+        public Guid? ProjectId { get; set; }
+        public string? ProjectName { get; set; }
         public string? CustomerName { get; set; }
         public string? CustomerPhoneNumber { get; set; }
         public DateTime IssueDate { get; set; }

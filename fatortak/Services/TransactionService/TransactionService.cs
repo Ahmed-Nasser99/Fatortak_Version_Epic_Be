@@ -36,8 +36,44 @@ namespace fatortak.Services.TransactionService
             {
                 transaction.TenantId = TenantId;
                 transaction.CreatedAt = DateTime.UtcNow;
-                
+
                 _context.Transactions.Add(transaction);
+
+                // Update Balance Logic
+                if (transaction.FinancialAccountId.HasValue)
+                {
+                    var account = await _context.FinancialAccounts.FindAsync(transaction.FinancialAccountId.Value);
+                    if (account != null)
+                    {
+                        if (transaction.Direction == "Credit") // Money In
+                        {
+                            account.Balance += transaction.Amount;
+                        }
+                        else if (transaction.Direction == "Debit") // Money Out
+                        {
+                            account.Balance -= transaction.Amount;
+                        }
+                    }
+                }
+
+                if (transaction.CounterpartyAccountId.HasValue)
+                {
+                    var counterparty = await _context.FinancialAccounts.FindAsync(transaction.CounterpartyAccountId.Value);
+                    if (counterparty != null)
+                    {
+                        // Assuming Transfer logic:
+                        // Debit (Out) from Main -> Credit (In) to Counterparty
+                        if (transaction.Direction == "Debit")
+                        {
+                            counterparty.Balance += transaction.Amount;
+                        }
+                        else if (transaction.Direction == "Credit") // Rare: Receiving transfer FROM counterparty?
+                        {
+                            counterparty.Balance -= transaction.Amount;
+                        }
+                    }
+                }
+
                 await _context.SaveChangesAsync();
 
                 return ServiceResult<Transaction>.SuccessResult(transaction);
@@ -54,6 +90,9 @@ namespace fatortak.Services.TransactionService
             try
             {
                 var query = _context.Transactions
+                    .Include(t => t.Project)
+                    .Include(t => t.FinancialAccount)
+                    .Include(t => t.CounterpartyAccount)
                     .Where(t => t.TenantId == TenantId)
                     .AsQueryable();
 
@@ -66,40 +105,18 @@ namespace fatortak.Services.TransactionService
                     );
                 }
 
-                if (!string.IsNullOrWhiteSpace(filter.Type))
-                {
-                    query = query.Where(t => t.Type == filter.Type);
-                }
-
-                if (filter.FromDate.HasValue)
-                {
-                    query = query.Where(t => t.TransactionDate >= filter.FromDate.Value);
-                }
-
-                if (filter.ToDate.HasValue)
-                {
-                    query = query.Where(t => t.TransactionDate <= filter.ToDate.Value);
-                }
-
-                if (filter.MinAmount.HasValue)
-                {
-                    query = query.Where(t => t.Amount >= filter.MinAmount.Value);
-                }
-
-                if (filter.MaxAmount.HasValue)
-                {
-                    query = query.Where(t => t.Amount <= filter.MaxAmount.Value);
-                }
-
-                if (!string.IsNullOrEmpty(filter.ReferenceId))
-                {
-                    query = query.Where(t => t.ReferenceId == filter.ReferenceId);
-                }
-
-                if (!string.IsNullOrWhiteSpace(filter.ReferenceType))
-                {
-                    query = query.Where(t => t.ReferenceType == filter.ReferenceType);
-                }
+                if (!string.IsNullOrWhiteSpace(filter.Type)) query = query.Where(t => t.Type == filter.Type);
+                if (filter.FromDate.HasValue) query = query.Where(t => t.TransactionDate >= filter.FromDate.Value);
+                if (filter.ToDate.HasValue) query = query.Where(t => t.TransactionDate <= filter.ToDate.Value);
+                if (filter.MinAmount.HasValue) query = query.Where(t => t.Amount >= filter.MinAmount.Value);
+                if (filter.MaxAmount.HasValue) query = query.Where(t => t.Amount <= filter.MaxAmount.Value);
+                if (!string.IsNullOrEmpty(filter.ReferenceId)) query = query.Where(t => t.ReferenceId == filter.ReferenceId);
+                if (!string.IsNullOrWhiteSpace(filter.ReferenceType)) query = query.Where(t => t.ReferenceType == filter.ReferenceType);
+                
+                // New Filters
+                if (filter.ProjectId.HasValue) query = query.Where(t => t.ProjectId == filter.ProjectId);
+                if (filter.FinancialAccountId.HasValue) query = query.Where(t => t.FinancialAccountId == filter.FinancialAccountId || t.CounterpartyAccountId == filter.FinancialAccountId);
+                if (!string.IsNullOrWhiteSpace(filter.Category)) query = query.Where(t => t.Category == filter.Category);
 
                 var totalCount = await query.CountAsync();
 
@@ -128,6 +145,10 @@ namespace fatortak.Services.TransactionService
         {
             try
             {
+                // This original method might be simplstic now that we have multiple accounts.
+                // It likely summed ALL transactions. 
+                // We should probably rely on FinancialAccount Balance now.
+                // But keeping it for backward compatibility if needed, using the old logic:
                 var balance = await _context.Transactions
                     .Where(t => t.TenantId == TenantId)
                     .SumAsync(t => t.Direction == "Credit" ? t.Amount : -t.Amount);
@@ -139,7 +160,7 @@ namespace fatortak.Services.TransactionService
                 _logger.LogError(ex, "Error calculating balance");
                 return ServiceResult<decimal>.Failure("Failed to calculate balance");
             }
-        }
+         }
         public async Task<ServiceResult<bool>> DeleteTransactionByReferenceAsync(string referenceId, string referenceType)
         {
             try

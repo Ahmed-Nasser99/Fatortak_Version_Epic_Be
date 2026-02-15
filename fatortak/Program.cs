@@ -31,6 +31,8 @@ using fatortak.Services.BackfillService;
 using fatortak.Services.ReportService;
 using fatortak.Services.HR;
 using fatortak.Services.BranchService;
+using fatortak.Services.ProjectService;
+using fatortak.Services.FinancialAccountService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -146,6 +148,8 @@ namespace fatortak
             builder.Services.AddScoped<IReportExportService, ReportExportService>();
             builder.Services.AddScoped<IPayrollService, PayrollService>();
             builder.Services.AddScoped<IBranchService, BranchService>();
+            builder.Services.AddScoped<IProjectService, ProjectService>();
+            builder.Services.AddScoped<IFinancialAccountService, FinancialAccountService>();
             #endregion
 
 

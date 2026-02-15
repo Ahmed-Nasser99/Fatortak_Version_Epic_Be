@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using fatortak.Context;
 
@@ -11,9 +12,11 @@ using fatortak.Context;
 namespace fatortak.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260215200741_AddProjectsAndFinancialAccounts")]
+    partial class AddProjectsAndFinancialAccounts
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -856,9 +859,6 @@ namespace fatortak.Migrations
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<Guid?>("ProjectId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<bool>("RemindersCreated")
                         .HasColumnType("bit");
 
@@ -900,8 +900,6 @@ namespace fatortak.Migrations
                     b.HasIndex("CompanyId");
 
                     b.HasIndex("CustomerId");
-
-                    b.HasIndex("ProjectId");
 
                     b.HasIndex("TenantId");
 
@@ -1669,10 +1667,6 @@ namespace fatortak.Migrations
                         .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("fatortak.Entities.Project", "Project")
-                        .WithMany()
-                        .HasForeignKey("ProjectId");
-
                     b.HasOne("fatortak.Entities.Tenant", "Tenant")
                         .WithMany()
                         .HasForeignKey("TenantId")
@@ -1686,8 +1680,6 @@ namespace fatortak.Migrations
                     b.Navigation("Branch");
 
                     b.Navigation("Customer");
-
-                    b.Navigation("Project");
 
                     b.Navigation("Tenant");
 

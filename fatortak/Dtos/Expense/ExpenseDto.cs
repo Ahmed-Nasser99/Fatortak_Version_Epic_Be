@@ -9,6 +9,15 @@
         public string? FileUrl { get; set; }
         public string? FileName { get; set; }
         public Guid? BranchId { get; set; }
+        
+        public Guid? ProjectId { get; set; }
+        public string? ProjectName { get; set; }
+        
+        public Guid? SupplierId { get; set; }
+        public string? SupplierName { get; set; }
+        
+        public string? Category { get; set; }
+        
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }

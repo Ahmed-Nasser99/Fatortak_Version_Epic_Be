@@ -37,6 +37,8 @@ namespace fatortak.Services.ExpenseService
             try
             {
                 var query = _context.Expenses
+                    .Include(e => e.Project)
+                    .Include(e => e.Supplier)
                     .Where(e => e.TenantId == _tenantId)
                     .OrderByDescending(e => e.Date)
                     .AsQueryable();
@@ -46,6 +48,15 @@ namespace fatortak.Services.ExpenseService
 
                 if (filter.BranchId.HasValue)
                     query = query.Where(e => e.BranchId == filter.BranchId.Value);
+
+                if (filter.ProjectId.HasValue)
+                    query = query.Where(e => e.ProjectId == filter.ProjectId.Value);
+
+                if (filter.SupplierId.HasValue)
+                    query = query.Where(e => e.SupplierId == filter.SupplierId.Value);
+                    
+                if (!string.IsNullOrWhiteSpace(filter.Category))
+                    query = query.Where(e => e.Category == filter.Category);
 
                 // Get total count before pagination
                 var totalCount = await query.CountAsync();
@@ -96,6 +107,8 @@ namespace fatortak.Services.ExpenseService
             try
             {
                 var expense = await _context.Expenses
+                    .Include(e => e.Project)
+                    .Include(e => e.Supplier)
                     .FirstOrDefaultAsync(e => e.TenantId == _tenantId && e.Id == id);
 
                 if (expense == null)
@@ -142,6 +155,9 @@ namespace fatortak.Services.ExpenseService
                     OriginalFileName = originalFileName,
                     TenantId = _tenantId,
                     BranchId = expenseDto.BranchId,
+                    ProjectId = expenseDto.ProjectId,
+                    SupplierId = expenseDto.SupplierId,
+                    Category = expenseDto.Category,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -165,8 +181,28 @@ namespace fatortak.Services.ExpenseService
                     CreatedAt = DateTime.UtcNow,
                     PaymentMethod = "Cash",
                     CreatedBy = userId,
-                    BranchId = expense.BranchId
+                    BranchId = expense.BranchId,
+                    ProjectId = expense.ProjectId,
+                    FinancialAccountId = expenseDto.FinancialAccountId,
+                    Category = expense.Category
                 };
+
+                // Add Attachment URL to Transaction if file exists
+                if (!string.IsNullOrEmpty(filePath))
+                {
+                    // Construct URL or save path. Usually URL for frontend.
+                    // But Transaction entity has string? AttachmentUrl
+                    // MapToDto logic generates URL from path. 
+                    // Let's save the path or generated URL?
+                    // Ideally store what's useful. Path is better for backend, URL for frontend.
+                    // Storing Path in AttachmentUrl for consistency with how Expenses store it?
+                    // Or keep it null in Transaction and rely on ReferenceId -> Expense -> FilePath?
+                    // "System must require attachments... for every transaction".
+                    // If Transaction is created from Expense, Expense has file.
+                    // If Transaction is direct (e.g. Bank Fee), it might need file.
+                    // Here we link them. 
+                    financialTransaction.AttachmentUrl = filePath; 
+                }
                 
                 var transactionResult = await _transactionService.AddTransactionAsync(financialTransaction);
                 if (!transactionResult.Success)
@@ -197,7 +233,8 @@ namespace fatortak.Services.ExpenseService
                 if (expense == null)
                     return ServiceResult<ExpenseDto>.Failure("Expense not found");
 
-                // Handle file removal if requested
+                // Handle file removal/upload omitted for brevity in snippet, assume existing logic preserved if not touched
+                 // Handle file removal if requested
                 if (expenseDto.RemoveFile == true)
                 {
                     if (!string.IsNullOrEmpty(expense.FilePath))
@@ -211,38 +248,32 @@ namespace fatortak.Services.ExpenseService
                 // Handle new file upload
                 if (expenseDto.File != null && expenseDto.File.Length > 0)
                 {
-                    // Validate file size (10MB limit)
+                     // Validate file size (10MB limit)
                     if (expenseDto.File.Length > 10 * 1024 * 1024)
                         return ServiceResult<ExpenseDto>.Failure("File size cannot exceed 10MB");
 
-                    // Validate file type
+                     // Validate file type
                     var allowedExtensions = new[] { ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".doc", ".docx", ".xls", ".xlsx" };
                     var fileExtension = Path.GetExtension(expenseDto.File.FileName).ToLower();
                     if (!allowedExtensions.Contains(fileExtension))
                         return ServiceResult<ExpenseDto>.Failure("File type not allowed. Allowed types: PDF, JPG, PNG, GIF, DOC, DOCX, XLS, XLSX");
 
-                    // Delete old file if exists
                     if (!string.IsNullOrEmpty(expense.FilePath))
                     {
                         DeleteFile(expense.FilePath);
                     }
 
-                    // Save new file and store original filename
                     expense.FilePath = await SaveFile(expenseDto.File);
                     expense.OriginalFileName = expenseDto.File.FileName;
                 }
 
-                if (expenseDto.Date.HasValue)
-                    expense.Date = expenseDto.Date.Value;
-
-                if (expenseDto.Total.HasValue)
-                    expense.Total = expenseDto.Total.Value;
-
-                if (expenseDto.Notes != null)
-                    expense.Notes = expenseDto.Notes;
-
-                if (expenseDto.BranchId.HasValue)
-                    expense.BranchId = expenseDto.BranchId.Value;
+                if (expenseDto.Date.HasValue) expense.Date = expenseDto.Date.Value;
+                if (expenseDto.Total.HasValue) expense.Total = expenseDto.Total.Value;
+                if (expenseDto.Notes != null) expense.Notes = expenseDto.Notes;
+                if (expenseDto.BranchId.HasValue) expense.BranchId = expenseDto.BranchId.Value;
+                if (expenseDto.ProjectId.HasValue) expense.ProjectId = expenseDto.ProjectId.Value;
+                if (expenseDto.SupplierId.HasValue) expense.SupplierId = expenseDto.SupplierId.Value;
+                if (expenseDto.Category != null) expense.Category = expenseDto.Category;
 
                 expense.UpdatedAt = DateTime.UtcNow;
 
@@ -253,9 +284,21 @@ namespace fatortak.Services.ExpenseService
                 {
                     Amount = expense.Total,
                     TransactionDate = expense.Date.ToDateTime(TimeOnly.MinValue),
-                    Description = expense.Notes ?? "Expense"
+                    Description = expense.Notes ?? "Expense",
+                    ProjectId = expense.ProjectId,
+                    Category = expense.Category
                 };
                 await _transactionService.UpdateTransactionByReferenceAsync(expense.Id.ToString(), "Expense", transactionUpdate);
+
+                if (expense.ProjectId.HasValue)
+                {
+                     // We might need to reload project to map name
+                     await _context.Entry(expense).Reference(e => e.Project).LoadAsync();
+                }
+                 if (expense.SupplierId.HasValue)
+                {
+                     await _context.Entry(expense).Reference(e => e.Supplier).LoadAsync();
+                }
 
                 return ServiceResult<ExpenseDto>.SuccessResult(MapToDto(expense));
             }
@@ -270,20 +313,17 @@ namespace fatortak.Services.ExpenseService
         {
             try
             {
-                var expense = await _context.Expenses
-                    .FirstOrDefaultAsync(e => e.TenantId == _tenantId && e.Id == id);
+                var expense = await _context.Expenses.FirstOrDefaultAsync(e => e.TenantId == _tenantId && e.Id == id);
+                if (expense == null) return ServiceResult<bool>.Failure("Expense not found");
 
-                if (expense == null)
-                    return ServiceResult<bool>.Failure("Expense not found");
+                // Delete linked transaction
+                await _transactionService.DeleteTransactionByReferenceAsync(id.ToString(), "Expense");
 
-                // Delete associated file if exists
+                // Delete file if exists
                 if (!string.IsNullOrEmpty(expense.FilePath))
                 {
                     DeleteFile(expense.FilePath);
                 }
-
-                // Delete associated transaction
-                await _transactionService.DeleteTransactionByReferenceAsync(expense.Id.ToString(), "Expense");
 
                 _context.Expenses.Remove(expense);
                 await _context.SaveChangesAsync();
@@ -306,7 +346,6 @@ namespace fatortak.Services.ExpenseService
             {
                 var request = _httpContextAccessor.HttpContext.Request;
                 fileUrl = $"{request.Scheme}://{request.Host}/{expense.FilePath.Replace("\\", "/")}";
-                // Use original filename if available, otherwise extract from path
                 fileName = expense.OriginalFileName ?? Path.GetFileName(expense.FilePath);
             }
 
@@ -320,7 +359,12 @@ namespace fatortak.Services.ExpenseService
                 FileName = fileName,
                 BranchId = expense.BranchId,
                 CreatedAt = expense.CreatedAt,
-                UpdatedAt = expense.UpdatedAt
+                UpdatedAt = expense.UpdatedAt,
+                ProjectId = expense.ProjectId,
+                ProjectName = expense.Project?.Name,
+                SupplierId = expense.SupplierId,
+                SupplierName = expense.Supplier?.Name,
+                Category = expense.Category
             };
         }
 

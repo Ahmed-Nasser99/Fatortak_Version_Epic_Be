@@ -466,5 +466,44 @@ namespace fatortak.Controllers
             var result = await _reportsService.GetCurrentStockReportAsync(filter, pagination);
             return Ok(result);
         }
+
+        [HttpGet("project-sheet")]
+        public async Task<ActionResult<ServiceResult<ProjectSheetDto>>> GetProjectSheet(
+            [FromQuery] Guid projectId,
+            [FromQuery] DateTime? fromDate,
+            [FromQuery] DateTime? toDate)
+        {
+            if (projectId == Guid.Empty) return BadRequest(new { message = "Project ID is required" });
+            return Ok(await _reportsService.GetProjectSheetAsync(projectId, fromDate, toDate));
+        }
+
+        [HttpGet("treasury")]
+        public async Task<ActionResult<ServiceResult<TreasuryReportDto>>> GetTreasuryReport(
+            [FromQuery] DateTime? fromDate,
+            [FromQuery] DateTime? toDate,
+            [FromQuery] Guid? financialAccountId)
+        {
+            return Ok(await _reportsService.GetTreasuryReportAsync(fromDate, toDate, financialAccountId));
+        }
+
+        [HttpGet("supplier-ledger")]
+        public async Task<ActionResult<ServiceResult<AccountStatementDto>>> GetSupplierLedger(
+            [FromQuery] Guid supplierId,
+            [FromQuery] DateTime? fromDate,
+            [FromQuery] DateTime? toDate)
+        {
+            if (supplierId == Guid.Empty) return BadRequest(new { message = "Supplier ID is required" });
+            return Ok(await _reportsService.GetSupplierLedgerAsync(supplierId, fromDate, toDate));
+        }
+
+        [HttpGet("employee-custody")]
+        public async Task<ActionResult<ServiceResult<EmployeeCustodyReportDto>>> GetEmployeeCustodyReport(
+            [FromQuery] Guid employeeId,
+            [FromQuery] DateTime? fromDate,
+            [FromQuery] DateTime? toDate)
+        {
+            if (employeeId == Guid.Empty) return BadRequest(new { message = "Employee ID is required" });
+            return Ok(await _reportsService.GetEmployeeCustodyReportAsync(employeeId, fromDate, toDate));
+        }
     }
 }

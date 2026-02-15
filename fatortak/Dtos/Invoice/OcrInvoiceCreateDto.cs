@@ -6,6 +6,7 @@ namespace fatortak.Dtos.Invoice
     {
         public Guid? CustomerId { get; set; }
         public Guid? BranchId { get; set; }
+        public Guid? ProjectId { get; set; }
         public string? SallerName { get; set; }
         public string? SallerEmail { get; set; }
         public string? SallerPhone { get; set; }

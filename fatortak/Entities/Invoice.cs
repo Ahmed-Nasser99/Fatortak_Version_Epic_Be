@@ -36,6 +36,8 @@ namespace fatortak.Entities
         public ICollection<Installment>? Installments { get; set; } = new List<Installment>();
 
 
+        public Guid? ProjectId { get; set; }
+        public Project? Project { get; set; }
         public bool RemindersCreated { get; set; } = false;
 
     }

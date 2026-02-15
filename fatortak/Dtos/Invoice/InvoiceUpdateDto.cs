@@ -4,6 +4,7 @@
     {
         public Guid? CustomerId { get; set; }
         public Guid? BranchId { get; set; }
+        public Guid? ProjectId { get; set; }
         public DateTime? IssueDate { get; set; }
         public DateTime? DueDate { get; set; }
         public string? Notes { get; set; }

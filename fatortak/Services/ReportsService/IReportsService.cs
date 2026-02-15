@@ -32,5 +32,10 @@ namespace fatortak.Services.ReportsService
 
         Task<ServiceResult<PagedResponseDto<ItemProfitabilityReportDto>>> GetItemProfitabilityReportAsync(
             ItemProfitabilityFilterDto filter, PaginationDto pagination);
+
+        Task<ServiceResult<ProjectSheetDto>> GetProjectSheetAsync(Guid projectId, DateTime? fromDate, DateTime? toDate);
+        Task<ServiceResult<TreasuryReportDto>> GetTreasuryReportAsync(DateTime? fromDate, DateTime? toDate, Guid? financialAccountId);
+        Task<ServiceResult<AccountStatementDto>> GetSupplierLedgerAsync(Guid supplierId, DateTime? fromDate, DateTime? toDate);
+        Task<ServiceResult<EmployeeCustodyReportDto>> GetEmployeeCustodyReportAsync(Guid employeeId, DateTime? fromDate, DateTime? toDate);
     }
 }

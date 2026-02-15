@@ -140,6 +140,7 @@ namespace fatortak.Services.InvoiceService
                     DownPayment = dto.DownPayment.GetValueOrDefault(),
                     Benefits = dto.Benefits.GetValueOrDefault(),
                     BranchId = dto.BranchId,
+                    ProjectId = dto.ProjectId,
                     Status = InvoiceStatus.Draft.ToString() // Always start as draft
                 };
 
@@ -249,7 +250,8 @@ namespace fatortak.Services.InvoiceService
                             ReferenceId = invoice.Id.ToString(),
                             ReferenceType = "Invoice",
                             Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
-                            PaymentMethod = "Cash"
+                            PaymentMethod = "Cash",
+                            ProjectId = invoice.ProjectId
                         });
                     }
                     else if (dto.NumberOfInstallments > 0)
@@ -310,6 +312,7 @@ namespace fatortak.Services.InvoiceService
                     DownPayment = dto.DownPayment.GetValueOrDefault(),
                     Benefits = dto.Benefits.GetValueOrDefault(),
                     BranchId = dto.BranchId,
+                    ProjectId = dto.ProjectId,
                     Status = dto.Status ?? InvoiceStatus.Draft.ToString() // Always start as draft
                 };
 
@@ -388,7 +391,8 @@ namespace fatortak.Services.InvoiceService
                             ReferenceType = "Invoice",
                             Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
                             PaymentMethod = "Cash",
-                            BranchId = invoice.BranchId
+                            BranchId = invoice.BranchId,
+                            ProjectId = invoice.ProjectId
                         });
                     }
                     else if (dto.NumberOfInstallments > 0)
@@ -684,6 +688,7 @@ namespace fatortak.Services.InvoiceService
                 invoice.Status = dto.Status ?? invoice.Status;
                 invoice.InvoiceType = dto.InvoiceType ?? invoice.InvoiceType;
                 invoice.BranchId = dto.BranchId ?? invoice.BranchId;
+                invoice.ProjectId = dto.ProjectId ?? invoice.ProjectId;
                 invoice.UpdatedAt = DateTime.UtcNow;
 
                 // Handle benefits if provided
@@ -1442,7 +1447,9 @@ namespace fatortak.Services.InvoiceService
                 DownPayment = invoice.DownPayment,
                 hasInstallments = invoice.Installments?.Any() ?? false,
                 Items = invoice.InvoiceItems.Select(MapToDto).ToList(),
-                Installments = invoice?.Installments?.OrderBy(i => i.DueDate)?.Select(MapToDto).ToList()
+                Installments = invoice?.Installments?.OrderBy(i => i.DueDate)?.Select(MapToDto).ToList(),
+                ProjectId = invoice.ProjectId,
+                ProjectName = invoice.Project?.Name
             };
         }
 

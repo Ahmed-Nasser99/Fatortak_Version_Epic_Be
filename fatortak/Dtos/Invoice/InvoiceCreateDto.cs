@@ -6,6 +6,7 @@ namespace fatortak.Dtos.Invoice
     {
         public Guid CustomerId { get; set; }
         public Guid? BranchId { get; set; }
+        public Guid? ProjectId { get; set; }
 
         public DateTime IssueDate { get; set; } = DateTime.UtcNow;
         public DateTime DueDate { get; set; } = DateTime.UtcNow.AddDays(30);
