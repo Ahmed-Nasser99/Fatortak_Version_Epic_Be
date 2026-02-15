@@ -1,0 +1,36 @@
+﻿using fatortak.Dtos.Dashboard;
+using fatortak.Dtos.Invoice;
+using fatortak.Dtos.Report;
+using fatortak.Dtos.Report.Stock;
+using fatortak.Dtos.Shared;
+
+namespace fatortak.Services.ReportsService
+{
+    public interface IReportsService
+    {
+        Task<ServiceResult<ReportStatsDto>> GetReportStatsAsync(string period);
+        Task<ServiceResult<List<RevenueDataPointDto>>> GetRevenueDataAsync(string period);
+        Task<ServiceResult<List<TopCustomerDto>>> GetTopCustomersAsync(string period, int topCount = 5);
+        Task<ServiceResult<List<TopSupplierDto>>> GetTopSuppliersAsync(string period, int topCount = 5);
+        Task<ServiceResult<CashFlowDto>> GetCashFlowAsync(string period);
+        Task<ServiceResult<ProfitAnalysisDto>> GetProfitAnalysisAsync(string period);
+        Task<ServiceResult<PagedResponseDto<InvoiceDto>>> GetSalesReport(
+        InvoiceFilterDto filter, PaginationDto pagination);
+        Task<ServiceResult<PagedResponseDto<TransactionDto>>> GetExpensesReport(
+        InvoiceFilterDto filter, PaginationDto pagination, string? expensesStatus);
+        Task<ServiceResult<AccountStatementDto>> GetAccountStatementAsync(AccountStatementFilterDto filter);
+        Task<ServiceResult<PagedResponseDto<TransactionDto>>> GetRecentTransactionsAsync(
+            InvoiceFilterDto filter,
+            PaginationDto pagination,
+            string? type);
+
+        Task<ServiceResult<PagedResponseDto<CurrentStockReportDto>>> GetCurrentStockReportAsync(
+        StockReportFilterDto filter, PaginationDto pagination);
+
+        Task<ServiceResult<List<ItemMovementReportDto>>> GetItemMovementReportAsync(
+            ItemMovementFilterDto filter);
+
+        Task<ServiceResult<PagedResponseDto<ItemProfitabilityReportDto>>> GetItemProfitabilityReportAsync(
+            ItemProfitabilityFilterDto filter, PaginationDto pagination);
+    }
+}

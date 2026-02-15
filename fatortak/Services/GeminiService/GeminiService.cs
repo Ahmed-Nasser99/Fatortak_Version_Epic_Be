@@ -1,0 +1,1098 @@
+﻿using DocumentFormat.OpenXml.Packaging;
+using fatortak.Context;
+using fatortak.Dtos.GeminiDto;
+using fatortak.Dtos.Invoice;
+using fatortak.Entities;
+using Microsoft.EntityFrameworkCore;
+using System.Data;
+using System.Text;
+using System.Text.Json;
+
+namespace fatortak.Services.GeminiService
+{
+    public class GeminiService
+    {
+        private readonly HttpClient _httpClient;
+        private readonly IConfiguration _config;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly ApplicationDbContext _context;
+        private readonly string _companyCurrency;
+        private readonly ILogger<GeminiService> _logger;
+
+        public GeminiService(HttpClient httpClient, IConfiguration config, IHttpContextAccessor httpContextAccessor, ApplicationDbContext context, ILogger<GeminiService> logger)
+        {
+            _httpClient = httpClient;
+            _config = config;
+            _httpContextAccessor = httpContextAccessor;
+            _context = context;
+            _logger = logger;
+
+            var tenant = (Tenant)_httpContextAccessor.HttpContext.Items["CurrentTenant"];
+            if (tenant != null)
+            {
+                var company = _context.Companies.AsNoTracking().FirstOrDefault(c => c.TenantId == tenant.Id);
+                if (company != null)
+                {
+                    _companyCurrency = company.Currency;
+                }
+                else
+                {
+                    _logger.LogWarning("Company not found for TenantId: {TenantId}", tenant.Id);
+                }
+            }
+        }
+
+        private Guid _tenantId =>
+            ((Tenant)_httpContextAccessor.HttpContext.Items["CurrentTenant"]).Id;
+
+        public async Task<string> GetSqlQueryAsync(string userQuery, List<RequestChatMessage> chatHistory)
+        {
+            var model = "gemini-2.0-flash";
+            var endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
+
+            var schema = """
+                Schema:
+                Tables and Relationships:
+
+                =================================================
+                --- Business Core ---
+                =================================================
+
+                1. Companies
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - Name: string
+                - Address: string?
+                - Phone: string?
+                - Email: string?
+                - TaxNumber: string?
+                - VATNumber: string?
+                - LogoUrl: string?
+                - IsActive: bool
+                - Currency: string
+                - DefaultVatRate: decimal
+                - InvoicePrefix: string?
+                - CreatedAt: DateTime
+                - UpdatedAt: DateTime?
+
+                2. Customers
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - Name: string
+                - Email: string?
+                - Phone: string?
+                - Address: string?
+                - TaxNumber: string?
+                - VATNumber: string?
+                - IsActive: bool
+                - IsDeleted: bool
+                - IsSupplier: bool
+                - PaymentTerms: string?
+                - Notes: string?
+                - CreatedAt: DateTime
+                - UpdatedAt: DateTime?
+
+                3. Items
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - Code: string?
+                - Name: string
+                - Description: string?
+                - Type: string
+                - Quantity: int?
+                - InitialQuantity: int?
+                - UnitPrice: decimal?
+                - PurchaseUnitPrice: decimal?
+                - Unit: string?
+                - VatRate: decimal?
+                - IsActive: bool
+                - IsDeleted: bool
+                - CreatedAt: DateTime
+                - UpdatedAt: DateTime?
+
+                4. Invoices
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - InvoiceNumber: string
+                - CustomerId: Guid (FK → Customer)
+                - UserId: Guid (FK → ApplicationUser)
+                - IssueDate: DateTime
+                - DueDate: DateTime
+                - Status: string (Enum → InvoiceStatus)
+                - Subtotal: decimal
+                - VatAmount: decimal
+                - TotalDiscount: decimal
+                - Total: decimal
+                - Currency: string?
+                - Notes: string?
+                - Terms: string?
+                - InvoiceType: string (Enum → InvoiceTypes: Buy, Sell)
+                - CreatedAt: DateTime
+                - UpdatedAt: DateTime?
+                - SentAt: DateTime?
+                - PaidAt: DateTime?
+                - DownPayment: decimal?
+                - AmountPaid: decimal?
+                - Benefits: decimal?
+                - RemindersCreated: bool
+
+                5. InvoiceItems
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - InvoiceId: Guid (FK → Invoice)
+                - ItemId: Guid? (FK → Item)
+                - Description: string?
+                - Quantity: decimal?
+                - UnitPrice: decimal?
+                - VatRate: decimal?
+                - LineTotal: decimal?
+                - Discount: decimal?
+
+                6. Expenses
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - Date: DateOnly
+                - Notes: string?
+                - Total: decimal?
+                - CreatedAt: DateTime
+                - UpdatedAt: DateTime?
+
+                7. Employees
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - DepartmentId: Guid (FK → Department)
+                - FullName: string
+                - Email: string?
+                - Phone: string?
+                - Position: string?
+                - HireDate: DateTime?
+                - Salary: decimal?
+
+                8. Departments
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - Name: string
+                - Description: string?
+
+                9. Attendance
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - EmployeeId: Guid (FK → Employee)
+                - Date: DateTime
+                - AttendTime: DateTime?
+                - LeaveTime: DateTime?
+                - Status: string?
+                - Reason: string?
+
+                10. WorkSettings
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - WorkStartTime: TimeSpan
+                - WorkEndTime: TimeSpan
+                - WeekendDays: string
+                - GracePeriodMinutes: int
+                - BreakMinutes: int
+                - IsRespectGeneralVacation: bool
+
+                11. GeneralVacations
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - Name: string
+                - Date: DateOnly
+                - DaysOfVacation: int?
+                - Notes: string?
+                - WorkSettingId: Guid (FK → WorkSetting)
+
+                12. Installments
+                - Id: Guid (PK)
+                - TenantId: Guid (FK → Tenant)
+                - InvoiceId: Guid (FK → Invoice)
+                - DueDate: DateTime
+                - Amount: decimal
+                - Status: string (Enum → InstallmentStatus)
+                - PaidAt: DateTime?
+                """;
+
+            var systemInstructions = $"""
+        You are an expert SQL query generator for the Fatortak financial system.
+
+        **PROFIT CALCULATION RULES (Match ReportsService Logic):**
+        1. **Revenue**: Sum of 'Sell' invoices. IF Status='PartialPaid' USE AmountPaid, ELSE USE Total.
+        2. **Purchases**: Sum of 'Buy' invoices. IF Status='PartialPaid' USE AmountPaid, ELSE USE Total.
+        3. **Expenses**: Sum of 'Total' from Expenses table.
+        4. **Salaries**: Sum of 'Salary' from Employees table (Snapshot, no date filter).
+        5. **Net Profit** = Revenue - (Purchases + Expenses + Salaries).
+
+        **Profit Calculation Example (Use this structure for "Net Profit"):**
+        ```sql
+        SELECT 'Revenue' AS Category, ISNULL(SUM(CASE WHEN Status = 'PartialPaid' AND AmountPaid IS NOT NULL THEN AmountPaid ELSE Total END), 0) AS Amount
+        FROM Invoices 
+        WHERE TenantId = @TenantId AND InvoiceType = 'Sell' AND Status IN ('Paid', 'PartialPaid') AND IssueDate >= DATEADD(QUARTER, -1, GETDATE())
+        
+        UNION ALL
+        
+        SELECT 'Purchases' AS Category, ISNULL(SUM(CASE WHEN Status = 'PartialPaid' AND AmountPaid IS NOT NULL THEN AmountPaid ELSE Total END), 0) AS Amount
+        FROM Invoices 
+        WHERE TenantId = @TenantId AND InvoiceType = 'Buy' AND Status IN ('Paid', 'PartialPaid') AND IssueDate >= DATEADD(QUARTER, -1, GETDATE())
+        
+        UNION ALL
+        
+        SELECT 'Expenses' AS Category, ISNULL(SUM(Total), 0) AS Amount
+        FROM Expenses 
+        WHERE TenantId = @TenantId AND Date >= CAST(DATEADD(QUARTER, -1, GETDATE()) AS DATE)
+        
+        UNION ALL
+        
+        SELECT 'Salaries' AS Category, ISNULL(SUM(Salary), 0) AS Amount
+        FROM Employees 
+        WHERE TenantId = @TenantId
+        ```
+
+                =================================================
+                CRITICAL QUERY DESIGN RULES
+                =================================================
+
+                **ALWAYS RETURN DETAILED RECORDS + SUMMARY**
+                
+                For ANY query asking for totals/summaries, structure the query to return BOTH:
+                1. Individual records with all relevant details
+                2. A summary row with aggregated totals
+
+                Example Template:
+                ```sql
+                SELECT 
+                    i.InvoiceNumber,
+                    c.Name AS CustomerName,
+                    i.Total,
+                    i.IssueDate,
+                    'DETAIL' AS RowType
+                FROM Invoices i
+                JOIN Customers c ON i.CustomerId = c.Id
+                WHERE i.TenantId = @TenantId
+                  AND i.InvoiceType = 'Sell'
+                  AND i.Status IN ('Paid', 'PartialPaid')
+                  AND i.IssueDate BETWEEN DATEADD(MONTH, -1, GETDATE()) AND GETDATE()
+
+                UNION ALL
+
+                SELECT 
+                    'TOTAL' AS InvoiceNumber,
+                    'SUMMARY' AS CustomerName,
+                    ISNULL(SUM(i.Total), 0) AS Total,
+                    NULL AS IssueDate,
+                    'SUMMARY' AS RowType
+                FROM Invoices i
+                WHERE i.TenantId = @TenantId
+                  AND i.InvoiceType = 'Sell'
+                  AND i.Status IN ('Paid', 'PartialPaid')
+                  AND i.IssueDate BETWEEN DATEADD(MONTH, -1, GETDATE()) AND GETDATE()
+                ```
+
+                **Query Type Guidelines:**
+
+                   - Include summary with aggregated metrics
+
+                **Security & Filters:**
+                - ALL queries MUST filter by TenantId = @TenantId
+                - Customers/Items MUST include IsDeleted = 0
+                - Financial queries MUST exclude Status IN ('Cancelled', 'Draft')
+
+                **Date Filters:**
+                - This week: DATEADD(DAY, -7, GETDATE())
+                - This month: DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+                - This year: DATEFROMPARTS(YEAR(GETDATE()), 1, 1)
+
+                **Special Keywords:**
+                - "عملاء" (customers): IsSupplier = 0
+                - "موردين" (suppliers): IsSupplier = 1
+                - "المبيعات" (sales): InvoiceType = 'Sell'
+                - "المشتريات" (purchases): InvoiceType = 'Buy'
+        SELECT TOP 5
+            c.Id,
+            c.Name,
+            c.Email,
+            ISNULL(SUM(i.Total), 0) AS TotalSpent
+        FROM Customers c
+        LEFT JOIN Invoices i ON c.Id = i.CustomerId 
+            AND i.TenantId = @TenantId
+            AND i.InvoiceType = 'Sell'
+            AND i.Status = 'Paid'
+        WHERE c.TenantId = @TenantId
+          AND c.IsDeleted = 0
+        GROUP BY c.Id, c.Name, c.Email
+        ORDER BY TotalSpent DESC
+        ```
+
+        **CRITICAL RULES:**
+        - When using UNION ALL, ensure all SELECT statements have the SAME number of columns
+        - When using ORDER BY with UNION, wrap the first query in parentheses or put ORDER BY at the end
+        - For TOP/LIMIT queries, use simple SELECT without UNION
+        - Always filter by @TenantId in EVERY table
+        - Use ISNULL() for aggregations to handle NULL values
+
+        **Response Format:**
+        - Output ONLY the SQL query
+        - NO comments, explanations, or markdown backticks
+        - Choose the simplest query structure that answers the question
+        - Default to simple SELECT unless totals are explicitly needed
+
+        {schema}
+        """;
+
+            var conversation = new List<object>();
+
+            conversation.Add(new
+            {
+                role = "user",
+                parts = new[] { new { text = systemInstructions } }
+            });
+
+            foreach (var message in chatHistory)
+            {
+                conversation.Add(new
+                {
+                    role = message.Role,
+                    parts = new[] { new { text = message.Content } }
+                });
+            }
+
+            conversation.Add(new
+            {
+                role = "user",
+                parts = new[] { new { text = $"Generate SQL for: '{userQuery}'" } }
+            });
+
+            var requestBody = new { contents = conversation };
+            var responseBody = await SendRequestWithRetryAsync(requestBody, endpoint);
+            var json = JsonSerializer.Deserialize<JsonElement>(responseBody);
+            var rawSql = json.GetProperty("candidates")[0]
+                                 .GetProperty("content")
+                                 .GetProperty("parts")[0]
+                                 .GetProperty("text")
+                                 .GetString();
+
+            var cleanedSql = CleanSql(rawSql);
+            var finalSql = EnsureTenantFiltering(cleanedSql);
+
+            return finalSql;
+        }
+
+        public async Task<List<Dictionary<string, object>>> ExecuteSqlAsync(DbContext db, string sql)
+        {
+            var conn = db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open)
+                await conn.OpenAsync();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+
+            var parameter = cmd.CreateParameter();
+            parameter.ParameterName = "@TenantId";
+            parameter.Value = _tenantId;
+            cmd.Parameters.Add(parameter);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            var result = new List<Dictionary<string, object>>();
+
+            while (await reader.ReadAsync())
+            {
+                var row = new Dictionary<string, object>();
+                for (int i = 0; i < reader.FieldCount; i++)
+                    row[reader.GetName(i)] = reader.GetValue(i);
+                result.Add(row);
+            }
+
+            return result;
+        }
+
+        private VisualizationData? ExtractVisualizationData(string query, List<Dictionary<string, object>> data)
+        {
+            if (data == null || !data.Any())
+                return null;
+
+            // Filter out summary rows for visualization
+            var detailRows = data.Where(row =>
+                !row.ContainsKey("RowType") ||
+                row["RowType"]?.ToString() != "SUMMARY"
+            ).ToList();
+
+            if (!detailRows.Any())
+                return null;
+
+            var lowerQuery = query.ToLower();
+            var firstRow = detailRows.First();
+
+            // Helper for case-insensitive value retrieval
+            object GetValue(Dictionary<string, object> dict, params string[] keys)
+            {
+                foreach (var key in keys)
+                {
+                    var match = dict.Keys.FirstOrDefault(k => k.Equals(key, StringComparison.OrdinalIgnoreCase));
+                    if (match != null && dict[match] != DBNull.Value)
+                        return dict[match];
+                }
+                return null;
+            }
+
+            // Helper for case-insensitive key check
+            bool ContainsAnyKey(Dictionary<string, object> dict, params string[] keys) =>
+                keys.Any(k => dict.Keys.Any(dk => dk.Equals(k, StringComparison.OrdinalIgnoreCase)));
+
+            // Expanded keyword lists
+            string[] timeKeys = {
+                "Month", "Date", "Year", "Period", "Day", "IssueDate", "CreatedAt", "DueDate", "PaidAt",
+                "الشهر", "اليوم", "التاريخ", "السنة", "الفترة"
+            };
+            string[] categoryKeys = {
+                "Name", "CustomerName", "ItemName", "ProductName", "Category", "Type", "Status", "Role", "Department", "InvoiceNumber",
+                "الاسم", "الفئة", "النوع", "الحالة", "القسم", "رقم_الفاتورة"
+            };
+            string[] valueKeys = {
+                "Total", "Amount", "Value", "Price", "Revenue", "Sales", "Profit", "NetIncome", "TotalRevenue", "TotalExpenses",
+                "Count", "Quantity", "Salary", "TotalSpent", "Subtotal",
+                "المبلغ", "الإجمالي", "الربح", "العدد", "الكمية", "الراتب", "صافي_الربح"
+            };
+
+            bool hasTimeDimension = ContainsAnyKey(firstRow, timeKeys);
+            bool hasCategoryDimension = ContainsAnyKey(firstRow, categoryKeys);
+            bool hasNumericValue = ContainsAnyKey(firstRow, valueKeys);
+
+            try
+            {
+                // KPI for single value (1 row, few columns)
+                if (detailRows.Count == 1 && firstRow.Count <= 5 && hasNumericValue)
+                {
+                    var kpiValue = GetValue(firstRow, valueKeys);
+                    // Use the first non-value key as label, or default to "Total"
+                    var kpiLabel = firstRow.Keys.FirstOrDefault(k => !valueKeys.Contains(k, StringComparer.OrdinalIgnoreCase)) ?? "Total";
+
+                    return new VisualizationData
+                    {
+                        Type = "kpi",
+                        Data = new List<object> { new { Label = kpiLabel, Value = $"{Convert.ToDecimal(kpiValue):N0} {_companyCurrency}" } }
+                    };
+                }
+
+                // Line chart for time series
+                if (detailRows.Count > 1 && hasTimeDimension && hasNumericValue)
+                {
+                    var chartData = detailRows.Select(d => new
+                    {
+                        name = GetValue(d, timeKeys)?.ToString() ?? "N/A",
+                        value = Convert.ToDecimal(GetValue(d, valueKeys) ?? 0)
+                    }).ToList();
+
+                    return new VisualizationData
+                    {
+                        Type = "chart",
+                        ChartType = "line",
+                        Title = "Trend Over Time",
+                        Data = chartData
+                    };
+                }
+
+                // Bar chart for categories
+                if (detailRows.Count > 0 && hasCategoryDimension && hasNumericValue)
+                {
+                    var chartData = detailRows
+                        .GroupBy(d => GetValue(d, categoryKeys)?.ToString() ?? "N/A")
+                        .Select(g => new
+                        {
+                            name = g.Key,
+                            value = g.Sum(d => Convert.ToDecimal(GetValue(d, valueKeys) ?? 0))
+                        })
+                        .OrderByDescending(x => x.value)
+                        .Take(15)
+                        .ToList();
+
+                    return new VisualizationData
+                    {
+                        Type = "chart",
+                        ChartType = "bar",
+                        Title = "Comparison",
+                        Data = chartData
+                    };
+                }
+
+                // Pie chart logic (if few categories)
+                if (detailRows.Count > 0 && detailRows.Count <= 5 && hasCategoryDimension && hasNumericValue)
+                {
+                    var chartData = detailRows
+                       .GroupBy(d => GetValue(d, categoryKeys)?.ToString() ?? "N/A")
+                       .Select(g => new
+                       {
+                           name = g.Key,
+                           value = g.Sum(d => Convert.ToDecimal(GetValue(d, valueKeys) ?? 0))
+                       })
+                       .OrderByDescending(x => x.value)
+                       .ToList();
+
+                    return new VisualizationData
+                    {
+                        Type = "chart",
+                        ChartType = "pie",
+                        Title = "Distribution",
+                        Data = chartData
+                    };
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating visualization");
+                return null;
+
+            }
+        }
+
+        public async Task<(string summary, VisualizationData? visualData)> GetArabicSummaryWithVisualsAsync(
+            string userQuery,
+            List<Dictionary<string, object>> data,
+            List<RequestChatMessage> chatHistory,
+            string sql)
+        {
+            try
+            {
+                if (data == null || !data.Any())
+                {
+                    var noDataMsg = "No data found for this query.";
+                    return (noDataMsg, null);
+                }
+
+                // Check if query has summary row (for financial totals)
+                var summaryRow = data.FirstOrDefault(row =>
+                    row.ContainsKey("RowType") &&
+                    row["RowType"]?.ToString() == "SUMMARY"
+                );
+
+                // Separate detail rows from summary
+                var detailRows = data.Where(row =>
+                    !row.ContainsKey("RowType") ||
+                    row["RowType"]?.ToString() != "SUMMARY"
+                ).ToList();
+
+                // If no detail rows (only summary), use all data
+                if (!detailRows.Any())
+                {
+                    detailRows = data;
+                    summaryRow = null;
+                }
+
+                // Generate summary
+                var summary = await GetArabicSummaryAsync(userQuery, detailRows, chatHistory, summaryRow, sql);
+
+                // Generate visualizations from detail rows only
+                var visualData = ExtractVisualizationData(userQuery, detailRows);
+
+                return (summary, visualData);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating summary with visuals");
+
+                // Fallback: try basic summary without visualizations
+                try
+                {
+                    var fallbackSummary = await GetArabicSummaryAsync(userQuery, data, chatHistory, null, sql);
+                    return (fallbackSummary, null);
+                }
+                catch
+                {
+                    return ("Error generating response. Please try rephrasing your question.", null);
+                }
+            }
+        }
+
+        public async Task<string> GetArabicSummaryAsync(
+            string userQuery,
+            List<Dictionary<string, object>> detailRows,
+            List<RequestChatMessage> chatHistory,
+            Dictionary<string, object>? summaryRow,
+            string sql)
+        {
+            try
+            {
+                var model = "gemini-2.0-flash";
+                var endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
+
+                detailRows ??= new List<Dictionary<string, object>>();
+                chatHistory ??= new List<RequestChatMessage>();
+
+                const int maxHistoryMessages = 10;
+                var recentHistory = chatHistory
+                    .Skip(Math.Max(0, chatHistory.Count - maxHistoryMessages))
+                    .ToList();
+
+                var conversation = new List<object>();
+
+                foreach (var message in recentHistory)
+                {
+                    if (!string.IsNullOrWhiteSpace(message.Content))
+                    {
+                        conversation.Add(new
+                        {
+                            role = message.Role,
+                            parts = new[] { new { text = message.Content } }
+                        });
+                    }
+                }
+
+                // Take sample of detail rows (max 30 for context)
+                var sampleRows = detailRows.Take(30).ToList();
+
+                var dataJson = JsonSerializer.Serialize(sampleRows, new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                });
+
+                var summaryInfo = "";
+                if (summaryRow != null)
+                {
+                    var summaryJson = JsonSerializer.Serialize(summaryRow, new JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                    });
+                    summaryInfo = $"\n\n**VERIFIED TOTALS (From Query Summary Row):**\n{summaryJson}\n";
+                }
+
+                var currentPrompt = $"""
+        You are "Fatortak AI", a smart financial assistant.
+
+        User Query: "{userQuery}"
+
+        {summaryInfo}
+
+        **QUERY RESULTS** (Total Records: {detailRows.Count}, Showing: {sampleRows.Count}):
+        {dataJson}
+
+        **GENERATED SQL:**
+        ```sql
+        {sql}
+        ```
+
+        **RESPONSE INSTRUCTIONS:**
+
+        1. **Detect Language**: Match user's language (Arabic or English)
+           - Arabic: Use Arabic digits (١٢٣) and "جنيه مصري"
+           ```
+           | Column1 | Column2 | Column3 |
+           |---------|---------|---------|
+           | Value   | Value   | Value   |
+           ```
+
+        4. **Formatting**:
+           - Use **bold** for important numbers and totals
+           - Keep it professional and clear
+           - Don't over-format with too many headers
+           - Add 2-3 relevant follow-up questions at the end
+
+        5. **Accuracy**:
+           - Present data exactly as returned from query
+           - If summary row exists, use it for totals (don't recalculate)
+           - Be clear if showing a sample of larger dataset
+
+        6. **Calculation Details (CRITICAL - SHOW ACTUAL NUMBERS)**:
+           - You MUST show the ACTUAL NUMBERS from the data, not placeholders like "*Calculated from individual transactions*".
+           - For financial queries (revenue, profit, expenses):
+             * Show the total revenue amount (e.g., "Total Revenue: 313,000 EGP")
+             * Show the total expenses with breakdown by category (e.g., "Purchase Invoices: 120,000 EGP + Direct Expenses: 20,000 EGP = Total Expenses: 140,000 EGP")
+             * Show the calculation: "Revenue - Expenses = Net Profit" with actual numbers (e.g., "313,000 - 140,000 = 173,000 EGP")
+           - Explain in SIMPLE, NON-TECHNICAL LANGUAGE how we got these numbers.
+           - **DO NOT** mention "SQL", "tables", "columns", "queries", or "database".
+           - **DO NOT** show code or formulas.
+           - Example: "We calculated this by adding up all paid sales invoices from this quarter (313,000 EGP) and subtracting the total expenses which include purchase invoices (120,000 EGP) and direct expenses (20,000 EGP)."
+
+        Generate response now:
+        """;
+
+                conversation.Add(new
+                {
+                    role = "user",
+                    parts = new[] { new { text = currentPrompt } }
+                });
+
+                var requestBody = new
+                {
+                    contents = conversation,
+                    generationConfig = new
+                    {
+                        temperature = 0.3,
+                        maxOutputTokens = 2048
+                    }
+                };
+
+                var responseBody = await SendRequestWithRetryAsync(requestBody, endpoint);
+                var json = JsonSerializer.Deserialize<JsonElement>(responseBody);
+                var summary = json.GetProperty("candidates")[0]
+                    .GetProperty("content")
+                    .GetProperty("parts")[0]
+                    .GetProperty("text")
+                    .GetString();
+
+                return summary?.Trim() ?? "No response generated";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetArabicSummaryAsync");
+                throw;
+            }
+        }
+
+        private string CleanSql(string raw)
+        {
+            var cleaned = raw.Replace("```sql", "", StringComparison.OrdinalIgnoreCase)
+                        .Replace("```", "", StringComparison.OrdinalIgnoreCase)
+                        .Trim();
+
+            var lines = cleaned.Split('\n');
+            var filteredLines = new List<string>();
+
+            foreach (var line in lines)
+            {
+                var trimmedLine = line.Trim();
+                if (!trimmedLine.StartsWith("DECLARE @TenantId", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(trimmedLine) &&
+                    !trimmedLine.StartsWith("--", StringComparison.OrdinalIgnoreCase))
+                {
+                    filteredLines.Add(line);
+                }
+            }
+
+            var finalSql = string.Join("\n", filteredLines).Trim();
+
+            // Log the cleaned SQL for debugging
+            _logger.LogInformation("Cleaned SQL: {SQL}", finalSql);
+
+            // Basic SQL validation
+            ValidateSql(finalSql);
+
+            return finalSql;
+        }
+
+        private void ValidateSql(string sql)
+        {
+            // Check for basic SQL injection patterns
+            var lowerSql = sql.ToLower();
+
+            // Must start with SELECT
+            if (!lowerSql.TrimStart().StartsWith("select"))
+            {
+                throw new InvalidOperationException("Query must start with SELECT");
+            }
+
+            // Check for dangerous keywords
+            string[] dangerousKeywords = { "drop ", "delete ", "truncate ", "alter ", "create ", "insert ", "update ", "exec ", "execute " };
+            foreach (var keyword in dangerousKeywords)
+            {
+                if (lowerSql.Contains(keyword))
+                {
+                    throw new InvalidOperationException($"Dangerous SQL keyword detected: {keyword.Trim()}");
+                }
+            }
+
+            // Check for UNION syntax issues (common problem)
+            if (lowerSql.Contains("union"))
+            {
+                // Count SELECT statements
+                var selectCount = System.Text.RegularExpressions.Regex.Matches(lowerSql, @"\bselect\b").Count;
+                var unionCount = System.Text.RegularExpressions.Regex.Matches(lowerSql, @"\bunion\s+all\b").Count;
+
+                if (selectCount != unionCount + 1)
+                {
+                    _logger.LogWarning("Potential UNION syntax issue: {SelectCount} SELECTs, {UnionCount} UNIONs", selectCount, unionCount);
+                }
+            }
+        }
+
+        public async Task<OcrInvoiceCreateDto> ExtractInvoiceDataAsync(IFormFile file)
+        {
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms);
+            var fileBytes = ms.ToArray();
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+            string extractedText = string.Empty;
+
+            if (extension is ".jpg" or ".jpeg" or ".png" or ".pdf")
+            {
+                extractedText = await RunOcrAsync(fileBytes, extension);
+            }
+            else if (extension is ".doc" or ".docx")
+            {
+                using var doc = WordprocessingDocument.Open(new MemoryStream(fileBytes), false);
+                extractedText = doc.MainDocumentPart.Document.Body.InnerText;
+            }
+            else
+            {
+                throw new NotSupportedException($"File type {extension} not supported.");
+            }
+
+            var model = "gemini-2.0-flash";
+            var endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
+
+            var systemPrompt = """
+                    You are an expert at extracting invoices into structured JSON.
+                    Return only valid JSON matching the OcrInvoiceCreateDto structure.
+                    VatRate should be decimal (e.g., 0.14 for 14%).
+                    Dates in yyyy-MM-dd format.
+                    """;
+
+            var conversation = new List<object>
+            {
+                new { role = "user", parts = new[] { new { text = systemPrompt } } },
+                new { role = "user", parts = new[] { new { text = extractedText } } }
+            };
+
+            var requestBody = new { contents = conversation };
+            var responseBody = await SendRequestWithRetryAsync(requestBody, endpoint);
+
+            var json = JsonSerializer.Deserialize<JsonElement>(responseBody);
+            var structuredJson = json.GetProperty("candidates")[0]
+                                     .GetProperty("content")
+                                     .GetProperty("parts")[0]
+                                     .GetProperty("text")
+                                     .GetString();
+
+            structuredJson = structuredJson
+                            .Trim()
+                            .Replace("```json", "")
+                            .Replace("```", "")
+                            .Trim();
+
+            var invoice = JsonSerializer.Deserialize<OcrInvoiceCreateDto>(
+                          structuredJson,
+                          new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                      );
+
+            return invoice!;
+        }
+
+        private async Task<string> RunOcrAsync(byte[] fileBytes, string extension)
+        {
+            var model = "gemini-2.0-flash";
+            var endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
+            string base64Image = Convert.ToBase64String(fileBytes);
+
+            string mimeType = extension.ToLowerInvariant() switch
+            {
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                ".pdf" => "application/pdf",
+                _ => "image/jpeg"
+            };
+
+            var requestBody = new
+            {
+                contents = new[]
+                {
+                    new
+                    {
+                        role = "user",
+                        parts = new object[]
+                        {
+                            new { text = "Extract all text from this invoice." },
+                            new { inline_data = new { mime_type = mimeType, data = base64Image } }
+                        }
+                    }
+                }
+            };
+
+            return await SendRequestWithRetryAsync(requestBody, endpoint);
+        }
+
+        private async Task<string> SendRequestWithRetryAsync(object requestBody, string endpoint)
+        {
+            var apiKeys = new List<string>();
+
+            var primaryKey = _config["GeminiApiKey"];
+            if (!string.IsNullOrEmpty(primaryKey)) apiKeys.Add(primaryKey);
+
+            var substituteKey = _config["SubstituteGeminiApiKey"];
+            if (!string.IsNullOrEmpty(substituteKey)) apiKeys.Add(substituteKey);
+
+            if (!apiKeys.Any())
+            {
+                _logger.LogInformation("No Gemini API keys configured. Will try OpenRouter...");
+            }
+            else
+            {
+                foreach (var apiKey in apiKeys)
+                {
+                    try
+                    {
+                        return await ExecuteRequestWithKeyAsync(requestBody, endpoint, apiKey);
+                    }
+                    catch (Exception ex)
+                    {
+                        var keySuffix = apiKey.Length > 4 ? apiKey.Substring(apiKey.Length - 4) : "xxxx";
+                        _logger.LogWarning(ex, "Gemini API call failed with key ending in ...{KeySuffix}. Trying next provider...", keySuffix);
+                    }
+                }
+            }
+
+            // All Gemini keys failed - try OpenRouter as fallback
+            var openRouterKey = _config["OpenRouterApiKey"];
+            if (!string.IsNullOrEmpty(openRouterKey))
+            {
+                try
+                {
+                    _logger.LogInformation("All Gemini keys exhausted. Falling back to OpenRouter...");
+
+                    // Convert Gemini request to OpenRouter format
+                    var geminiRequest = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(requestBody));
+                    var contents = geminiRequest.GetProperty("contents");
+
+                    var messages = new List<object>();
+                    foreach (var msg in contents.EnumerateArray())
+                    {
+                        var role = msg.GetProperty("role").GetString();
+                        var parts = msg.GetProperty("parts");
+                        var text = "";
+
+                        foreach (var part in parts.EnumerateArray())
+                        {
+                            if (part.TryGetProperty("text", out var t))
+                            {
+                                text += t.GetString();
+                            }
+                        }
+
+                        messages.Add(new { role = role == "user" ? "user" : "assistant", content = text });
+                    }
+
+                    // Define fallback models (Free tier)
+                    var models = new[]
+                    {
+                        "google/gemini-2.0-flash-exp:free",
+                        "google/gemini-2.0-flash-thinking-exp:free",
+                        "xiaomi/mimo-v2-flash:free",
+                        "mistralai/devstral-2512:free",
+                        "amazon/nova-2-lite-v1:free",
+                        "meta-llama/llama-3.2-11b-vision-instruct:free"
+                    };
+
+                    foreach (var model in models)
+                    {
+                        try
+                        {
+                            _logger.LogInformation("Attempting OpenRouter with model: {Model}", model);
+
+                            var orRequest = new
+                            {
+                                model = model,
+                                messages = messages
+                            };
+
+                            var reqContent = new StringContent(JsonSerializer.Serialize(orRequest), Encoding.UTF8, "application/json");
+                            using var req = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/chat/completions") { Content = reqContent };
+                            req.Headers.Add("Authorization", $"Bearer {openRouterKey}");
+                            req.Headers.Add("HTTP-Referer", "https://fatortak.net");
+
+                            var resp = await _httpClient.SendAsync(req);
+                            var respBody = await resp.Content.ReadAsStringAsync();
+
+                            if (!resp.IsSuccessStatusCode)
+                            {
+                                _logger.LogWarning("OpenRouter model {Model} failed: {StatusCode} - {Response}", model, resp.StatusCode, respBody);
+                                continue; // Try next model
+                            }
+
+                            var orResponse = JsonSerializer.Deserialize<JsonElement>(respBody);
+                            var msgContent = orResponse.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+
+                            // Convert to Gemini format
+                            var geminiFormat = new
+                            {
+                                candidates = new[]
+                                {
+                                    new
+                                    {
+                                        content = new
+                                        {
+                                            parts = new[] { new { text = msgContent } }
+                                        }
+                                    }
+                                }
+                            };
+
+                            _logger.LogInformation("OpenRouter success with model: {Model}", model);
+                            return JsonSerializer.Serialize(geminiFormat);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Error with OpenRouter model {Model}", model);
+                            // Continue to next model
+                        }
+                    }
+
+                    throw new InvalidOperationException("All OpenRouter models failed.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "OpenRouter fallback failed completely.");
+                    throw new InvalidOperationException("All AI providers (Gemini + OpenRouter) failed.", ex);
+                }
+            }
+
+            throw new InvalidOperationException("All Gemini API keys failed and no OpenRouter key configured.");
+        }
+
+        private async Task<string> ExecuteRequestWithKeyAsync(object requestBody, string endpoint, string apiKey)
+        {
+            int maxRetries = 3;
+            int delay = 2000; // Start with 2 seconds
+
+            for (int i = 0; i <= maxRetries; i++)
+            {
+                try
+                {
+                    var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+                    using var request = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = content };
+                    request.Headers.Add("x-goog-api-key", apiKey);
+
+                    var response = await _httpClient.SendAsync(request);
+
+                    if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                    {
+                        _logger.LogWarning("Gemini API Rate Limit (429) hit. Retrying in {Delay}ms...", delay);
+                        await Task.Delay(delay);
+                        delay *= 2; // Exponential backoff
+                        continue;
+                    }
+
+                    var responseBody = await response.Content.ReadAsStringAsync();
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _logger.LogError("Gemini API Error: {StatusCode} - {Response}", response.StatusCode, responseBody);
+                        throw new HttpRequestException($"Gemini API Error: {response.StatusCode}");
+                    }
+
+                    return responseBody;
+                }
+                catch (HttpRequestException ex)
+                {
+                    _logger.LogWarning(ex, "HttpRequestException during Gemini API call. Attempt {Attempt} of {MaxRetries}", i + 1, maxRetries + 1);
+                    if (i == maxRetries) throw;
+                    await Task.Delay(delay);
+                    delay *= 2;
+                }
+            }
+
+            throw new InvalidOperationException("Failed to connect to Gemini API after multiple retries.");
+        }
+
+        private string EnsureTenantFiltering(string sql)
+        {
+            if (!sql.Contains("@TenantId", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("SQL must include tenant filtering for security.");
+            }
+            return sql;
+        }
+
+    }
+}
