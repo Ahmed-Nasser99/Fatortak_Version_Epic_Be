@@ -8,6 +8,10 @@ namespace fatortak.Dtos
         public string Name { get; set; }
         public FinancialAccountType Type { get; set; }
         public string? AccountNumber { get; set; }
+        public string? BankName { get; set; }
+        public string? Iban { get; set; }
+        public string? Swift { get; set; }
+        public string? Description { get; set; }
         public Guid? EmployeeId { get; set; }
         public string? EmployeeName { get; set; }
         public decimal Balance { get; set; }
@@ -20,6 +24,10 @@ namespace fatortak.Dtos
         public string Name { get; set; }
         public FinancialAccountType Type { get; set; }
         public string? AccountNumber { get; set; }
+        public string? BankName { get; set; }
+        public string? Iban { get; set; }
+        public string? Swift { get; set; }
+        public string? Description { get; set; }
         public Guid? EmployeeId { get; set; }
         public decimal InitialBalance { get; set; } = 0;
         public string Currency { get; set; } = "EGP";
@@ -28,8 +36,11 @@ namespace fatortak.Dtos
     public class UpdateFinancialAccountDto
     {
         public string Name { get; set; }
+        public FinancialAccountType Type { get; set; }
         public string? AccountNumber { get; set; }
-        // Type usually shouldn't change easily, but name/number can
-        // Balance is updated via transactions only
+        public string? BankName { get; set; }
+        public string? Iban { get; set; }
+        public string? Swift { get; set; }
+        public string? Description { get; set; }
     }
 }

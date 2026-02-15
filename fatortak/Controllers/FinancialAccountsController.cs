@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace fatortak.Controllers
 {
-    [Route("api/[controller]")]
+    [Route("api/financial-accounts")]
     [ApiController]
     [Authorize]
     public class FinancialAccountsController : ControllerBase

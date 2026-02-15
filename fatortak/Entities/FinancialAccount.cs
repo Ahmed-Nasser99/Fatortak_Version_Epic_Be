@@ -17,6 +17,10 @@ namespace fatortak.Entities
         public FinancialAccountType Type { get; set; }
 
         public string? AccountNumber { get; set; } // For Banks
+        public string? BankName { get; set; }
+        public string? Iban { get; set; }
+        public string? Swift { get; set; }
+        public string? Description { get; set; }
 
         // Reference to an Employee if Type == Custody
         public Guid? EmployeeId { get; set; }

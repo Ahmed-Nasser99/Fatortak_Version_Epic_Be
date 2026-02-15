@@ -35,6 +35,10 @@ namespace fatortak.Services.FinancialAccountService
                     EmployeeId = dto.EmployeeId,
                     Balance = dto.InitialBalance, // Set initial balance
                     Currency = dto.Currency,
+                    BankName = dto.BankName,
+                    Iban = dto.Iban,
+                    Swift = dto.Swift,
+                    Description = dto.Description,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -135,7 +139,12 @@ namespace fatortak.Services.FinancialAccountService
                     return ServiceResult<FinancialAccountDto>.Failure("Account not found");
 
                 account.Name = dto.Name;
+                account.Type = dto.Type;
                 account.AccountNumber = dto.AccountNumber;
+                account.BankName = dto.BankName;
+                account.Iban = dto.Iban;
+                account.Swift = dto.Swift;
+                account.Description = dto.Description;
                 account.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
@@ -185,6 +194,10 @@ namespace fatortak.Services.FinancialAccountService
                 Name = account.Name,
                 Type = account.Type,
                 AccountNumber = account.AccountNumber,
+                BankName = account.BankName,
+                Iban = account.Iban,
+                Swift = account.Swift,
+                Description = account.Description,
                 EmployeeId = account.EmployeeId,
                 EmployeeName = account.Employee?.FullName,
                 Balance = account.Balance,
