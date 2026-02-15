@@ -2,6 +2,7 @@ using fatortak.Context;
 using fatortak.Dtos;
 using fatortak.Dtos.Shared;
 using fatortak.Entities;
+using fatortak.Common.Enum;
 using Microsoft.EntityFrameworkCore;
 
 namespace fatortak.Services.ProjectService
@@ -114,6 +115,31 @@ namespace fatortak.Services.ProjectService
             {
                 _logger.LogError(ex, "Error getting project");
                 return ServiceResult<ProjectDto>.Failure("Failed to get project");
+            }
+        }
+
+        public async Task<ServiceResult<ProjectDto>> UpdateProjectStatusAsync(Guid projectId, ProjectStatus status)
+        {
+            try
+            {
+                var project = await _context.Projects
+                    .Include(p => p.Customer)
+                    .FirstOrDefaultAsync(p => p.Id == projectId && p.TenantId == TenantId);
+
+                if (project == null)
+                    return ServiceResult<ProjectDto>.Failure("Project not found");
+
+                project.Status = status;
+                project.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+
+                return ServiceResult<ProjectDto>.SuccessResult(MapToDto(project));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating project status");
+                return ServiceResult<ProjectDto>.Failure("Failed to update project status");
             }
         }
 

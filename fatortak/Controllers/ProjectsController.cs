@@ -55,6 +55,14 @@ namespace fatortak.Controllers
             return Ok(result);
         }
 
+        [HttpPatch("{projectId}/status")]
+        public async Task<ActionResult<ServiceResult<ProjectDto>>> UpdateProjectStatus(Guid projectId, [FromBody] UpdateProjectStatusDto dto)
+        {
+            var result = await _projectService.UpdateProjectStatusAsync(projectId, dto.Status);
+            if (!result.Success) return BadRequest(result);
+            return Ok(result);
+        }
+
         [HttpDelete("{projectId}")]
         public async Task<ActionResult<ServiceResult<bool>>> DeleteProject(Guid projectId)
         {

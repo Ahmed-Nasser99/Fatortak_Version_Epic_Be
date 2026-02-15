@@ -38,4 +38,8 @@ namespace fatortak.Dtos
         public DateTime StartDate { get; set; }
         public DateTime? EndDate { get; set; }
     }
+    public class UpdateProjectStatusDto
+    {
+        public ProjectStatus Status { get; set; }
+    }
 }
