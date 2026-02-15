@@ -19,7 +19,7 @@ namespace fatortak.Entities
         public Guid? CustomerId { get; set; }
         public Customer? Customer { get; set; }
 
-        public ProjectStatus Status { get; set; } = ProjectStatus.Draft;
+        public ProjectStatus Status { get; set; } = ProjectStatus.NotStarted;
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal TotalBudget { get; set; }

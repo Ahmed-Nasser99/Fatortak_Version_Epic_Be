@@ -22,8 +22,8 @@ namespace fatortak.Dtos
         public string Name { get; set; }
         public string? Description { get; set; }
         public Guid? CustomerId { get; set; }
-        public ProjectStatus Status { get; set; } = ProjectStatus.Draft;
-        public decimal TotalBudget { get; set; }
+        public ProjectStatus Status { get; set; } = ProjectStatus.NotStarted;
+        public decimal Budget { get; set; }
         public DateTime StartDate { get; set; }
         public DateTime? EndDate { get; set; }
     }
@@ -34,7 +34,7 @@ namespace fatortak.Dtos
         public string? Description { get; set; }
         public Guid? CustomerId { get; set; } // Can update to link/unlink client
         public ProjectStatus Status { get; set; }
-        public decimal TotalBudget { get; set; }
+        public decimal Budget { get; set; }
         public DateTime StartDate { get; set; }
         public DateTime? EndDate { get; set; }
     }

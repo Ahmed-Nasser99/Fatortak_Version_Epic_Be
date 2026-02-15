@@ -2,9 +2,11 @@ namespace fatortak.Common.Enum
 {
     public enum ProjectStatus
     {
-        Draft,
+        NotStarted,
         Active,
         Completed,
+        OnHold,
+        Cancelled,
         Settled,
         Archived
     }

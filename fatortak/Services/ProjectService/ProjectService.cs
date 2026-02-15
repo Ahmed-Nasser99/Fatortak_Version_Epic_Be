@@ -33,7 +33,7 @@ namespace fatortak.Services.ProjectService
                     Description = dto.Description,
                     CustomerId = dto.CustomerId,
                     Status = dto.Status,
-                    TotalBudget = dto.TotalBudget,
+                    TotalBudget = dto.Budget,
                     StartDate = dto.StartDate,
                     EndDate = dto.EndDate,
                     CreatedAt = DateTime.UtcNow
@@ -131,7 +131,7 @@ namespace fatortak.Services.ProjectService
                 project.Description = dto.Description;
                 project.CustomerId = dto.CustomerId;
                 project.Status = dto.Status;
-                project.TotalBudget = dto.TotalBudget;
+                project.TotalBudget = dto.Budget;
                 project.StartDate = dto.StartDate;
                 project.EndDate = dto.EndDate;
                 project.UpdatedAt = DateTime.UtcNow;
