@@ -61,5 +61,16 @@ namespace fatortak.Controllers
         {
             return Ok(await _transactionService.GetBalanceAsync());
         }
+
+        [HttpPost("transfer")]
+        public async Task<IActionResult> Transfer([FromBody] TransferDto transferDto)
+        {
+            var result = await _transactionService.TransferAsync(transferDto);
+            if (result.Success)
+            {
+                return Ok(new { message = "Transfer completed successfully" });
+            }
+            return BadRequest(result.ErrorMessage);
+        }
     }
 }

@@ -211,5 +211,81 @@ namespace fatortak.Services.TransactionService
                 return ServiceResult<Transaction>.Failure("Failed to update transaction");
             }
         }
+
+        public async Task<ServiceResult<bool>> TransferAsync(TransferDto transferDto)
+        {
+            using var transactionScope = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var userIdString = _httpContextAccessor.HttpContext?.User?.FindFirst("uid")?.Value;
+                var userId = !string.IsNullOrEmpty(userIdString) ? Guid.Parse(userIdString) : Guid.Empty;
+
+                // 1. Create Debit Transaction (Transfer Out)
+                var debitTransaction = new Transaction
+                {
+                    TenantId = TenantId,
+                    TransactionDate = transferDto.Date,
+                    Type = "Transfer",
+                    Amount = transferDto.Amount,
+                    Direction = "Debit",
+                    Description = transferDto.Description ?? "Transfer Out",
+                    PaymentMethod = "Transfer",
+                    CreatedBy = userId,
+                    BranchId = transferDto.BranchId,
+                    ProjectId = transferDto.ProjectId,
+                    FinancialAccountId = transferDto.FromAccountId,
+                    CounterpartyAccountId = transferDto.ToAccountId,
+                    ReferenceType = "Transfer"
+                };
+
+                // 2. Create Credit Transaction (Transfer In)
+                var creditTransaction = new Transaction
+                {
+                    TenantId = TenantId,
+                    TransactionDate = transferDto.Date,
+                    Type = "Transfer",
+                    Amount = transferDto.Amount,
+                    Direction = "Credit",
+                    Description = transferDto.Description ?? "Transfer In",
+                    PaymentMethod = "Transfer",
+                    CreatedBy = userId,
+                    BranchId = transferDto.BranchId,
+                    ProjectId = transferDto.ProjectId,
+                    FinancialAccountId = transferDto.ToAccountId,
+                    CounterpartyAccountId = transferDto.FromAccountId,
+                    ReferenceType = "Transfer"
+                };
+
+                // Save transactions and update balances
+                // We use AddTransactionAsync logic but optimized to avoid double SaveChanges or multiple calls if possible, 
+                // but for clarity we can just add them to context and handle balances here.
+                
+                _context.Transactions.Add(debitTransaction);
+                _context.Transactions.Add(creditTransaction);
+
+                // Update Balances
+                var fromAccount = await _context.FinancialAccounts.FindAsync(transferDto.FromAccountId);
+                var toAccount = await _context.FinancialAccounts.FindAsync(transferDto.ToAccountId);
+
+                if (fromAccount == null || toAccount == null)
+                {
+                    return ServiceResult<bool>.Failure("One or both accounts not found");
+                }
+
+                fromAccount.Balance -= transferDto.Amount;
+                toAccount.Balance += transferDto.Amount;
+
+                await _context.SaveChangesAsync();
+                await transactionScope.CommitAsync();
+
+                return ServiceResult<bool>.SuccessResult(true);
+            }
+            catch (Exception ex)
+            {
+                await transactionScope.RollbackAsync();
+                _logger.LogError(ex, "Error during transfer");
+                return ServiceResult<bool>.Failure("Transfer failed");
+            }
+        }
     }
 }

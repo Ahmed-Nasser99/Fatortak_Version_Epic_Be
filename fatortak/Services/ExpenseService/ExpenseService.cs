@@ -158,6 +158,7 @@ namespace fatortak.Services.ExpenseService
                     ProjectId = expenseDto.ProjectId,
                     SupplierId = expenseDto.SupplierId,
                     Category = expenseDto.Category,
+                    FinancialAccountId = expenseDto.FinancialAccountId,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -274,6 +275,7 @@ namespace fatortak.Services.ExpenseService
                 if (expenseDto.ProjectId.HasValue) expense.ProjectId = expenseDto.ProjectId.Value;
                 if (expenseDto.SupplierId.HasValue) expense.SupplierId = expenseDto.SupplierId.Value;
                 if (expenseDto.Category != null) expense.Category = expenseDto.Category;
+                if (expenseDto.FinancialAccountId.HasValue) expense.FinancialAccountId = expenseDto.FinancialAccountId.Value;
 
                 expense.UpdatedAt = DateTime.UtcNow;
 
@@ -364,7 +366,8 @@ namespace fatortak.Services.ExpenseService
                 ProjectName = expense.Project?.Name,
                 SupplierId = expense.SupplierId,
                 SupplierName = expense.Supplier?.Name,
-                Category = expense.Category
+                Category = expense.Category,
+                FinancialAccountId = expense.FinancialAccountId
             };
         }
 

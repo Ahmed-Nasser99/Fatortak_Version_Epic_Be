@@ -17,6 +17,8 @@
         public string? SupplierName { get; set; }
         
         public string? Category { get; set; }
+
+        public Guid? FinancialAccountId { get; set; }
         
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }

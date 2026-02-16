@@ -10,8 +10,8 @@ namespace fatortak.Dtos
         public Guid? CustomerId { get; set; }
         public string? CustomerName { get; set; }
         public ProjectStatus Status { get; set; }
-        public decimal TotalBudget { get; set; }
-        public DateTime StartDate { get; set; }
+        public decimal? TotalBudget { get; set; }
+        public DateTime? StartDate { get; set; }
         public DateTime? EndDate { get; set; }
         public bool IsInternal { get; set; }
         public DateTime CreatedAt { get; set; }

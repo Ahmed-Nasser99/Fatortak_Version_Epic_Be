@@ -11,5 +11,6 @@ namespace fatortak.Services.TransactionService
         Task<ServiceResult<decimal>> GetBalanceAsync();
         Task<ServiceResult<bool>> DeleteTransactionByReferenceAsync(string referenceId, string referenceType);
         Task<ServiceResult<Transaction>> UpdateTransactionByReferenceAsync(string referenceId, string referenceType, Transaction transaction);
+        Task<ServiceResult<bool>> TransferAsync(TransferDto transferDto);
     }
 }

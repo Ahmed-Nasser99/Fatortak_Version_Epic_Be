@@ -18,6 +18,9 @@
         public Guid? SupplierId { get; set; } // Link to a Customer with IsSupplier=true
         public Customer? Supplier { get; set; }
 
+        public Guid? FinancialAccountId { get; set; }
+        public FinancialAccount? FinancialAccount { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }
 
