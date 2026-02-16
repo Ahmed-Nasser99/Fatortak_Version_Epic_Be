@@ -19,12 +19,12 @@ namespace fatortak.Entities
         public Guid? CustomerId { get; set; }
         public Customer? Customer { get; set; }
 
-        public ProjectStatus Status { get; set; } = ProjectStatus.NotStarted;
+        public ProjectStatus Status { get; set; } = ProjectStatus.Active;
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal TotalBudget { get; set; }
+        public decimal? TotalBudget { get; set; }
 
-        public DateTime StartDate { get; set; }
+        public DateTime? StartDate { get; set; }
         public DateTime? EndDate { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
