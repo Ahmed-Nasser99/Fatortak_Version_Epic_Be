@@ -55,7 +55,7 @@ namespace fatortak.Middlewares
                 // Verify user has access to this tenant if authenticated
                 if (context.User?.Identity?.IsAuthenticated == true)
                 {
-                    var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                    var userId = context.User.FindFirst("UserId")?.Value;
                     if (!string.IsNullOrEmpty(userId) && Guid.TryParse(userId, out var userGuid))
                     {
                         var hasAccess = await _userManager.Users

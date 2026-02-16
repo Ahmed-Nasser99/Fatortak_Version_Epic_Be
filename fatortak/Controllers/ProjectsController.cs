@@ -55,7 +55,7 @@ namespace fatortak.Controllers
             return Ok(result);
         }
 
-        [HttpPatch("{projectId}/status")]
+        [HttpPost("{projectId}/status")]
         public async Task<ActionResult<ServiceResult<ProjectDto>>> UpdateProjectStatus(Guid projectId, [FromBody] UpdateProjectStatusDto dto)
         {
             var result = await _projectService.UpdateProjectStatusAsync(projectId, dto.Status);

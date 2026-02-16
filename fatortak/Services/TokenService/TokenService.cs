@@ -23,14 +23,14 @@ namespace fatortak.Services.TokenService
             new Claim(ClaimTypes.Email, user.Email),
             new Claim("FirstName", user.FirstName),
             new Claim("LastName", user.LastName),
-            tenantId != null ?  new Claim("tenant_id", tenantId.ToString()) : new Claim("" ,""),
             new Claim(ClaimTypes.Role, user.Role),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 
-            // Add roles (if you're using tenant-specific roles)
-            // var roles = await _userManager.GetRolesAsync(user);
-            // claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+            if (tenantId != null)
+            {
+                claims.Add(new Claim("tenant_id", tenantId.ToString()));
+            }
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
                 _configuration["Jwt:Key"]));
