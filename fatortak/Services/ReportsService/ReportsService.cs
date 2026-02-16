@@ -1037,184 +1037,62 @@ namespace fatortak.Services.ReportsService
         {
             try
             {
-                var transactions = new List<TransactionDto>();
-                decimal totalAmount = 0, totalPaid = 0, totalRemaining = 0;
+                var query = _context.Transactions
+                    .Include(t => t.Project)
+                    .Include(t => t.FinancialAccount)
+                    .Where(t => t.TenantId == _tenantId)
+                    .AsQueryable();
 
-                // Handle transaction types: "Sales", "Purchase", "Installment", "Expense", or empty (all)
-                bool showInvoices = string.IsNullOrEmpty(type) || type == "Sales" || type == "Purchase";
-                bool showInstallments = string.IsNullOrEmpty(type) || type == "Installment";
-                bool showExpenses = string.IsNullOrEmpty(type) || type == "Expense";
-
-                // Determine which specific invoice types to show
-                bool showSalesInvoices = string.IsNullOrEmpty(type) || type == "Sales";
-                bool showPurchaseInvoices = string.IsNullOrEmpty(type) || type == "Purchase";
-
-                // ---------------------------------------------------------
-                // 1) INVOICES
-                // ---------------------------------------------------------
-                if (showInvoices)
+                // Apply type filter if provided
+                if (!string.IsNullOrEmpty(type))
                 {
-                    var invoiceQuery = _context.Invoices
-                        .Include(i => i.Customer)
-                        .Where(i => i.TenantId == _tenantId)
-                        .AsQueryable();
-
-                    // Apply invoice filters including Sales/Purchase filtering
-                    invoiceQuery = ApplyInvoicesFilters(invoiceQuery, filter, type);
-
-                    var invoices = await invoiceQuery
-                        .OrderByDescending(i => i.CreatedAt)
-                        .Select(i => new TransactionDto
-                        {
-                            TransactionDateTime = i.CreatedAt,
-                            Date = i.CreatedAt.ToString("dd MMM yyyy"),
-                            Type = i.InvoiceType == InvoiceTypes.Sell.ToString() ? "Sales" : "Purchase",
-                            Reference = i.InvoiceNumber,
-                            Amount = i.Total,
-                            Paid = i.Status == InvoiceStatus.Paid.ToString()
-                                        ? i.Total
-                                        : (i.AmountPaid ?? 0),
-                            Remaining = i.Status != InvoiceStatus.Paid.ToString()
-                                        ? i.Total - (i.AmountPaid ?? 0) : 0,
-                            CustomerId = i.CustomerId,
-                            Status = i.Status,
-                            TargetId = i.Id.ToString()
-                        })
-                        .ToListAsync();
-
-                    transactions.AddRange(invoices);
-
-                    // Calculate totals for invoices based on specific type
-                    if (string.IsNullOrEmpty(type))
-                    {
-                        // All types - include both Sales and Purchase
-                        totalAmount += invoices.Sum(i => i.Amount);
-                        totalPaid += invoices.Sum(i => i.Paid);
-                        totalRemaining += invoices.Sum(i => i.Remaining);
-                    }
-                    else if (type == "Sales")
-                    {
-                        var salesInvoices = invoices.Where(i => i.Type == "Sales");
-                        totalAmount += salesInvoices.Sum(i => i.Amount);
-                        totalPaid += salesInvoices.Sum(i => i.Paid);
-                        totalRemaining += salesInvoices.Sum(i => i.Remaining);
-                    }
-                    else if (type == "Purchase")
-                    {
-                        var purchaseInvoices = invoices.Where(i => i.Type == "Purchase");
-                        totalAmount += purchaseInvoices.Sum(i => i.Amount);
-                        totalPaid += purchaseInvoices.Sum(i => i.Paid);
-                        totalRemaining += purchaseInvoices.Sum(i => i.Remaining);
-                    }
+                    // Map report 'type' to Transaction 'Type' or Direction if needed
+                    // For now, assume report 'type' matches Transaction 'Type' or is one of "Sales", "Purchase"
+                    if (type == "Sales") query = query.Where(t => t.Type == "PaymentReceived");
+                    else if (type == "Purchase") query = query.Where(t => t.Type == "PaymentMade");
+                    else query = query.Where(t => t.Type == type);
                 }
 
-                // ---------------------------------------------------------
-                // 2) INSTALLMENTS
-                // ---------------------------------------------------------
-                if (showInstallments)
+                // Apply InvoiceFilterDto filters
+                if (filter.FromDate.HasValue) query = query.Where(t => t.TransactionDate >= filter.FromDate.Value);
+                if (filter.ToDate.HasValue) query = query.Where(t => t.TransactionDate <= filter.ToDate.Value);
+                if (filter.BranchId.HasValue) query = query.Where(t => t.BranchId == filter.BranchId.Value);
+                if (filter.ProjectId.HasValue) query = query.Where(t => t.ProjectId == filter.ProjectId.Value);
+                if (!string.IsNullOrEmpty(filter.Search))
                 {
-                    var installmentQuery = _context.Installments
-                        .Include(i => i.Invoice)
-                        .Where(i => i.TenantId == _tenantId)
-                        .Where(i => i.PaidAt.HasValue)
-                        .AsQueryable();
-
-                    // Apply installment filters
-                    installmentQuery = ApplyInstallmentFilters(installmentQuery, filter);
-
-                    var installments = await installmentQuery
-                        .OrderByDescending(i => i.PaidAt)
-                        .Select(i => new TransactionDto
-                        {
-                            TransactionDateTime = i.PaidAt.Value,
-                            Date = i.DueDate.ToString("dd MMM yyyy"),
-                            Type = "Installment",
-                            Reference = i.Invoice.InvoiceNumber,
-                            Amount = i.Amount,
-                            Paid = i.Status == InstallmentStatus.Paid.ToString() ? i.Amount : 0,
-                            Remaining = i.Status == InstallmentStatus.Paid.ToString() ? 0 : i.Amount,
-                            CustomerId = i.Invoice.CustomerId,
-                            Status = i.Status,
-                            TargetId = i.Id.ToString()
-                        })
-                        .ToListAsync();
-
-                    transactions.AddRange(installments);
-
-                    // Calculate totals for installments
-                    if (string.IsNullOrEmpty(type) || type == "Installment")
-                    {
-                        totalAmount += installments.Sum(i => i.Amount);
-                        totalPaid += installments.Sum(i => i.Paid);
-                        totalRemaining += installments.Sum(i => i.Remaining);
-                    }
+                    var searchTerm = filter.Search.ToLower();
+                    query = query.Where(t => 
+                        (t.Description != null && t.Description.ToLower().Contains(searchTerm)) ||
+                        (t.ReferenceId != null && t.ReferenceId.ToLower().Contains(searchTerm))
+                    );
                 }
 
-                // ---------------------------------------------------------
-                // 3) EXPENSES
-                // ---------------------------------------------------------
-                if (showExpenses)
-                {
-                    var expenseQuery = _context.Expenses
-                        .Where(e => e.TenantId == _tenantId)
-                        .AsQueryable();
+                var totalCount = await query.CountAsync();
 
-                    // Apply expense filters
-                    expenseQuery = ApplyExpenseFilters(expenseQuery, filter);
+                // Calculate Statistics
+                var totalAmount = await query.SumAsync(t => t.Amount);
+                var totalPaid = await query.Where(t => t.Direction == "Credit").SumAsync(t => t.Amount); // Basic logic for paid
+                var totalRemaining = 0; // Transactions are usually settlements, so remaining doesn't apply the same as Invoice
 
-                    var expenses = await expenseQuery
-                        .OrderByDescending(e => e.CreatedAt)
-                        .Select(e => new TransactionDto
-                        {
-                            TransactionDateTime = e.CreatedAt,
-                            Date = e.CreatedAt.ToString("dd MMM yyyy"),
-                            Type = "Expense",
-                            Reference = string.IsNullOrEmpty(e.Notes) ? "EXP" :
-                                        e.Notes.Substring(0, Math.Min(10, e.Notes.Length)),
-                            Amount = e.Total,
-                            Paid = e.Total,
-                            Remaining = 0,
-                            Status = InvoiceStatus.Paid.ToString(),
-                            TargetId = e.Id.ToString()
-                        })
-                        .ToListAsync();
-
-                    transactions.AddRange(expenses);
-
-                    // Calculate totals for expenses
-                    if (string.IsNullOrEmpty(type) || type == "Expense")
-                    {
-                        totalAmount += expenses.Sum(e => e.Amount);
-                        totalPaid += expenses.Sum(e => e.Paid);
-                        totalRemaining += expenses.Sum(e => e.Remaining);
-                    }
-                }
-
-                // ---------------------------------------------------------
-                // Global Type filter (fallback for edge cases)
-                // ---------------------------------------------------------
-                if (!string.IsNullOrWhiteSpace(type))
-                {
-                    transactions = transactions
-                        .Where(t => t.Type.Equals(type, StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-                }
-
-                // ---------------------------------------------------------
-                // Sorting & Pagination
-                // ---------------------------------------------------------
-                var sorted = transactions
-                    .OrderByDescending(t => t.TransactionDateTime)
-                    .ToList();
-
-                var totalCount = sorted.Count;
-
-                var paged = sorted
+                var transactions = await query
+                    .OrderByDescending(t => t.TransactionDate)
                     .Skip((pagination.PageNumber - 1) * pagination.PageSize)
                     .Take(pagination.PageSize)
-                    .ToList();
+                    .Select(t => new TransactionDto
+                    {
+                        TransactionDateTime = t.TransactionDate,
+                        Date = t.TransactionDate.ToString("dd MMM yyyy"),
+                        Type = t.Type,
+                        Reference = t.ReferenceId ?? "TRX",
+                        Amount = t.Amount,
+                        Paid = t.Amount, // Transactions are movements, so they are fully 'paid' in this context
+                        Remaining = 0,
+                        Status = "Completed",
+                        TargetId = t.ReferenceId,
+                        Direction = t.Direction
+                    })
+                    .ToListAsync();
 
-                // Statistics metadata
                 var stats = new
                 {
                     totalAmount,
@@ -1226,7 +1104,7 @@ namespace fatortak.Services.ReportsService
                 return ServiceResult<PagedResponseDto<TransactionDto>>.SuccessResult(
                     new PagedResponseDto<TransactionDto>
                     {
-                        Data = paged,
+                        Data = transactions,
                         PageNumber = pagination.PageNumber,
                         PageSize = pagination.PageSize,
                         TotalCount = totalCount,

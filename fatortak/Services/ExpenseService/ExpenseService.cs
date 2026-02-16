@@ -38,7 +38,6 @@ namespace fatortak.Services.ExpenseService
             {
                 var query = _context.Expenses
                     .Include(e => e.Project)
-                    .Include(e => e.Supplier)
                     .Where(e => e.TenantId == _tenantId)
                     .OrderByDescending(e => e.Date)
                     .AsQueryable();
@@ -51,9 +50,6 @@ namespace fatortak.Services.ExpenseService
 
                 if (filter.ProjectId.HasValue)
                     query = query.Where(e => e.ProjectId == filter.ProjectId.Value);
-
-                if (filter.SupplierId.HasValue)
-                    query = query.Where(e => e.SupplierId == filter.SupplierId.Value);
                     
                 if (!string.IsNullOrWhiteSpace(filter.Category))
                     query = query.Where(e => e.Category == filter.Category);
@@ -108,7 +104,6 @@ namespace fatortak.Services.ExpenseService
             {
                 var expense = await _context.Expenses
                     .Include(e => e.Project)
-                    .Include(e => e.Supplier)
                     .FirstOrDefaultAsync(e => e.TenantId == _tenantId && e.Id == id);
 
                 if (expense == null)
@@ -156,7 +151,6 @@ namespace fatortak.Services.ExpenseService
                     TenantId = _tenantId,
                     BranchId = expenseDto.BranchId,
                     ProjectId = expenseDto.ProjectId,
-                    SupplierId = expenseDto.SupplierId,
                     Category = expenseDto.Category,
                     FinancialAccountId = expenseDto.FinancialAccountId,
                     CreatedAt = DateTime.UtcNow
@@ -273,7 +267,6 @@ namespace fatortak.Services.ExpenseService
                 if (expenseDto.Notes != null) expense.Notes = expenseDto.Notes;
                 if (expenseDto.BranchId.HasValue) expense.BranchId = expenseDto.BranchId.Value;
                 if (expenseDto.ProjectId.HasValue) expense.ProjectId = expenseDto.ProjectId.Value;
-                if (expenseDto.SupplierId.HasValue) expense.SupplierId = expenseDto.SupplierId.Value;
                 if (expenseDto.Category != null) expense.Category = expenseDto.Category;
                 if (expenseDto.FinancialAccountId.HasValue) expense.FinancialAccountId = expenseDto.FinancialAccountId.Value;
 
@@ -296,10 +289,6 @@ namespace fatortak.Services.ExpenseService
                 {
                      // We might need to reload project to map name
                      await _context.Entry(expense).Reference(e => e.Project).LoadAsync();
-                }
-                 if (expense.SupplierId.HasValue)
-                {
-                     await _context.Entry(expense).Reference(e => e.Supplier).LoadAsync();
                 }
 
                 return ServiceResult<ExpenseDto>.SuccessResult(MapToDto(expense));
@@ -364,8 +353,6 @@ namespace fatortak.Services.ExpenseService
                 UpdatedAt = expense.UpdatedAt,
                 ProjectId = expense.ProjectId,
                 ProjectName = expense.Project?.Name,
-                SupplierId = expense.SupplierId,
-                SupplierName = expense.Supplier?.Name,
                 Category = expense.Category,
                 FinancialAccountId = expense.FinancialAccountId
             };

@@ -38,6 +38,10 @@ namespace fatortak.Entities
 
         public Guid? ProjectId { get; set; }
         public Project? Project { get; set; }
+
+        public Guid? FinancialAccountId { get; set; }
+        public FinancialAccount? FinancialAccount { get; set; }
+
         public bool RemindersCreated { get; set; } = false;
 
     }

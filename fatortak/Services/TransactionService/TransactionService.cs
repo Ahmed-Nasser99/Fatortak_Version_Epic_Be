@@ -173,6 +173,23 @@ namespace fatortak.Services.TransactionService
                     return ServiceResult<bool>.Failure("Transaction not found");
                 }
 
+                // Reverse Balance Logic before deleting
+                if (transaction.FinancialAccountId.HasValue)
+                {
+                    var account = await _context.FinancialAccounts.FindAsync(transaction.FinancialAccountId.Value);
+                    if (account != null)
+                    {
+                        if (transaction.Direction == "Credit") // Was Money In, now take it out
+                        {
+                            account.Balance -= transaction.Amount;
+                        }
+                        else if (transaction.Direction == "Debit") // Was Money Out, now put it back
+                        {
+                            account.Balance += transaction.Amount;
+                        }
+                    }
+                }
+
                 _context.Transactions.Remove(transaction);
                 await _context.SaveChangesAsync();
 
@@ -197,9 +214,48 @@ namespace fatortak.Services.TransactionService
                     return ServiceResult<Transaction>.Failure("Transaction not found");
                 }
 
+                // Reverse old Balance Logic
+                if (transaction.FinancialAccountId.HasValue)
+                {
+                    var oldAccount = await _context.FinancialAccounts.FindAsync(transaction.FinancialAccountId.Value);
+                    if (oldAccount != null)
+                    {
+                        if (transaction.Direction == "Credit") // Revert Money In
+                        {
+                            oldAccount.Balance -= transaction.Amount;
+                        }
+                        else if (transaction.Direction == "Debit") // Revert Money Out
+                        {
+                            oldAccount.Balance += transaction.Amount;
+                        }
+                    }
+                }
+
+                // Update transaction properties
                 transaction.Amount = updatedTransaction.Amount;
                 transaction.TransactionDate = updatedTransaction.TransactionDate;
                 transaction.Description = updatedTransaction.Description;
+                transaction.ProjectId = updatedTransaction.ProjectId;
+                transaction.Category = updatedTransaction.Category;
+                transaction.FinancialAccountId = updatedTransaction.FinancialAccountId;
+                transaction.Direction = updatedTransaction.Direction ?? transaction.Direction;
+
+                // Apply new Balance Logic with updated account and amount
+                if (transaction.FinancialAccountId.HasValue)
+                {
+                    var newAccount = await _context.FinancialAccounts.FindAsync(transaction.FinancialAccountId.Value);
+                    if (newAccount != null)
+                    {
+                        if (transaction.Direction == "Credit") // Apply New Money In
+                        {
+                            newAccount.Balance += transaction.Amount;
+                        }
+                        else if (transaction.Direction == "Debit") // Apply New Money Out
+                        {
+                            newAccount.Balance -= transaction.Amount;
+                        }
+                    }
+                }
 
                 await _context.SaveChangesAsync();
 

@@ -15,9 +15,6 @@
         public Guid? ProjectId { get; set; }
         public Project? Project { get; set; }
 
-        public Guid? SupplierId { get; set; } // Link to a Customer with IsSupplier=true
-        public Customer? Supplier { get; set; }
-
         public Guid? FinancialAccountId { get; set; }
         public FinancialAccount? FinancialAccount { get; set; }
 

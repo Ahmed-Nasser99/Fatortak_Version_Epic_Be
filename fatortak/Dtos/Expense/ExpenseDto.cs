@@ -13,9 +13,6 @@
         public Guid? ProjectId { get; set; }
         public string? ProjectName { get; set; }
         
-        public Guid? SupplierId { get; set; }
-        public string? SupplierName { get; set; }
-        
         public string? Category { get; set; }
 
         public Guid? FinancialAccountId { get; set; }

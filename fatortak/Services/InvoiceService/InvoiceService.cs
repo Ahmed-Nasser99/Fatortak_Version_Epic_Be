@@ -141,6 +141,7 @@ namespace fatortak.Services.InvoiceService
                     Benefits = dto.Benefits.GetValueOrDefault(),
                     BranchId = dto.BranchId,
                     ProjectId = dto.ProjectId,
+                    FinancialAccountId = dto.FinancialAccountId,
                     Status = InvoiceStatus.Draft.ToString() // Always start as draft
                 };
 
@@ -251,6 +252,7 @@ namespace fatortak.Services.InvoiceService
                             ReferenceType = "Invoice",
                             Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
                             PaymentMethod = "Cash",
+                            FinancialAccountId = invoice.FinancialAccountId,
                             ProjectId = invoice.ProjectId
                         });
                     }
@@ -313,6 +315,7 @@ namespace fatortak.Services.InvoiceService
                     Benefits = dto.Benefits.GetValueOrDefault(),
                     BranchId = dto.BranchId,
                     ProjectId = dto.ProjectId,
+                    FinancialAccountId = dto.FinancialAccountId,
                     Status = dto.Status ?? InvoiceStatus.Draft.ToString() // Always start as draft
                 };
 
@@ -370,13 +373,22 @@ namespace fatortak.Services.InvoiceService
                         invoice.Customer.LastEngagementDate = DateTime.UtcNow;
                     }
 
-
-
+                    decimal paymentAmount = 0;
                     if (dto.Status == InvoiceStatus.Paid.ToString())
                     {
-                        invoice.AmountPaid = invoice.Total;
+                        paymentAmount = invoice.Total;
+                        invoice.AmountPaid = paymentAmount;
                         invoice.PaidAt = DateTime.UtcNow;
+                    }
+                    else if (dto.DownPayment.GetValueOrDefault() > 0)
+                    {
+                        paymentAmount = dto.DownPayment.Value;
+                        invoice.AmountPaid = paymentAmount;
+                        // Status might have been determined by installments logic
+                    }
 
+                    if (paymentAmount > 0)
+                    {
                         var transactionType = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "PaymentReceived" : "PaymentMade";
                         var direction = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Credit" : "Debit";
                         var desc = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Payment received" : "Payment made";
@@ -385,28 +397,33 @@ namespace fatortak.Services.InvoiceService
                         {
                             TransactionDate = DateTime.UtcNow,
                             Type = transactionType,
-                            Amount = invoice.Total,
+                            Amount = paymentAmount,
                             Direction = direction,
                             ReferenceId = invoice.Id.ToString(),
                             ReferenceType = "Invoice",
                             Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
                             PaymentMethod = "Cash",
                             BranchId = invoice.BranchId,
+                            FinancialAccountId = invoice.FinancialAccountId,
                             ProjectId = invoice.ProjectId
                         });
                     }
-                    else if (dto.NumberOfInstallments > 0)
+
+                    if (dto.NumberOfInstallments > 0)
                     {
                         await HandleInstallmentsAsync(invoice, dto);
-
-                        if (dto.DownPayment > 0)
+                        
+                        // Status refinement based on DownPayment if not already Paid
+                        if (invoice.Status != InvoiceStatus.Paid.ToString())
                         {
-                            invoice.AmountPaid = dto.DownPayment.Value;
-                            invoice.Status = InvoiceStatus.PartialPaid.ToString();
-                        }
-                        else
-                        {
-                            invoice.Status = InvoiceStatus.Pending.ToString();
+                            if (dto.DownPayment.GetValueOrDefault() > 0)
+                            {
+                                invoice.Status = InvoiceStatus.PartialPaid.ToString();
+                            }
+                            else
+                            {
+                                invoice.Status = InvoiceStatus.Pending.ToString();
+                            }
                         }
                     }
                 }
