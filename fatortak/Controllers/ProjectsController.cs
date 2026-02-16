@@ -21,7 +21,7 @@ namespace fatortak.Controllers
         }
 
         [HttpPost]
-        public async Task<ActionResult<ServiceResult<ProjectDto>>> CreateProject(CreateProjectDto dto)
+        public async Task<ActionResult<ServiceResult<ProjectDto>>> CreateProject([FromBody] CreateProjectDto dto)
         {
             var result = await _projectService.CreateProjectAsync(dto);
             if (!result.Success) return BadRequest(result);
@@ -47,8 +47,8 @@ namespace fatortak.Controllers
             return Ok(result);
         }
 
-        [HttpPut("{projectId}")]
-        public async Task<ActionResult<ServiceResult<ProjectDto>>> UpdateProject(Guid projectId, UpdateProjectDto dto)
+        [HttpPost("{projectId}/update")]
+        public async Task<ActionResult<ServiceResult<ProjectDto>>> UpdateProject(Guid projectId, [FromBody] UpdateProjectDto dto)
         {
             var result = await _projectService.UpdateProjectAsync(projectId, dto);
             if (!result.Success) return BadRequest(result);
@@ -63,7 +63,7 @@ namespace fatortak.Controllers
             return Ok(result);
         }
 
-        [HttpDelete("{projectId}")]
+        [HttpPost("{projectId}/delete")]
         public async Task<ActionResult<ServiceResult<bool>>> DeleteProject(Guid projectId)
         {
             var result = await _projectService.DeleteProjectAsync(projectId);
