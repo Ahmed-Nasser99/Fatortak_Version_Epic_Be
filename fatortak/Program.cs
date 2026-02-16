@@ -32,7 +32,10 @@ using fatortak.Services.ReportService;
 using fatortak.Services.HR;
 using fatortak.Services.BranchService;
 using fatortak.Services.ProjectService;
-using fatortak.Services.FinancialAccountService;
+using fatortak.Services.ProjectService;
+using fatortak.Services.AccountingService;
+using fatortak.Services.AccountingPostingService;
+using fatortak.Services.CustodyService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -153,7 +156,10 @@ namespace fatortak
             builder.Services.AddScoped<IPayrollService, PayrollService>();
             builder.Services.AddScoped<IBranchService, BranchService>();
             builder.Services.AddScoped<IProjectService, ProjectService>();
-            builder.Services.AddScoped<IFinancialAccountService, FinancialAccountService>();
+            builder.Services.AddScoped<IProjectService, ProjectService>();
+            builder.Services.AddScoped<IAccountingService, AccountingService>();
+            builder.Services.AddScoped<IAccountingPostingService, AccountingPostingService>();
+            builder.Services.AddScoped<ICustodyService, CustodyService>();
             #endregion
 
 
@@ -218,9 +224,26 @@ namespace fatortak
 
             app.UseStaticFiles();
             app.MapControllers();
+            
+            // Seed data on startup
             try
             {
-                SeedingAdminUser.Seed(app);
+                SeedingAdminUser.Seed(app).GetAwaiter().GetResult();
+                
+                // Seed Chart of Accounts for all existing tenants
+                using (var scope = app.Services.CreateScope())
+                {
+                    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                    try
+                    {
+                        Seeding.AccountSeeder.SeedAccountsAsync(context).GetAwaiter().GetResult();
+                        Console.WriteLine("Chart of Accounts seeded successfully for all tenants.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error seeding Chart of Accounts: {ex.Message}");
+                    }
+                }
             }
             catch (Exception ex)
             {

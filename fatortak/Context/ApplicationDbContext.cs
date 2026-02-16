@@ -42,7 +42,11 @@ namespace fatortak.Context
         public DbSet<PayrollItem> PayrollItems { get; set; }
         public DbSet<Branch> Branches { get; set; }
         public DbSet<Project> Projects { get; set; }
-        public DbSet<FinancialAccount> FinancialAccounts { get; set; }
+
+        // Accounting module
+        public DbSet<Account> Accounts { get; set; }
+        public DbSet<JournalEntry> JournalEntries { get; set; }
+        public DbSet<JournalEntryLine> JournalEntryLines { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

@@ -15,8 +15,6 @@
         public Guid? ProjectId { get; set; }
         public Project? Project { get; set; }
 
-        public Guid? FinancialAccountId { get; set; }
-        public FinancialAccount? FinancialAccount { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }

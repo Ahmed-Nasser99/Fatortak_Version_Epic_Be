@@ -37,6 +37,5 @@ namespace fatortak.Dtos.Invoice
         public decimal? Benefits { get; set; } = 0; // For Only Installment Invoices
 
         public List<InstallmentCreateDto>? Installments { get; set; }
-        public Guid? FinancialAccountId { get; set; }
     }
 }

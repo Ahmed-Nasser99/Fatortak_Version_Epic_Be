@@ -3,6 +3,7 @@ using fatortak.Context;
 using fatortak.Dtos.Shared;
 using fatortak.Dtos.Tenant;
 using fatortak.Entities;
+using fatortak.Seeding;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -87,6 +88,18 @@ namespace fatortak.Services.TenantService
                 });
 
                 await _context.SaveChangesAsync();
+
+                // Seed default Chart of Accounts for new tenant
+                try
+                {
+                    await Seeding.AccountSeeder.SeedAccountsForNewTenantAsync(_context, tenant.Id);
+                    _logger.LogInformation("Successfully seeded default accounts for tenant {TenantId}", tenant.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error seeding accounts for tenant {TenantId}. Tenant created but accounts not seeded.", tenant.Id);
+                    // Don't fail tenant creation if account seeding fails
+                }
 
                 return ServiceResult<Tenant>.SuccessResult(tenant);
             }

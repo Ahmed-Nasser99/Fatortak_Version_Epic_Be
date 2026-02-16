@@ -39,41 +39,6 @@ namespace fatortak.Services.TransactionService
 
                 _context.Transactions.Add(transaction);
 
-                // Update Balance Logic
-                if (transaction.FinancialAccountId.HasValue)
-                {
-                    var account = await _context.FinancialAccounts.FindAsync(transaction.FinancialAccountId.Value);
-                    if (account != null)
-                    {
-                        if (transaction.Direction == "Credit") // Money In
-                        {
-                            account.Balance += transaction.Amount;
-                        }
-                        else if (transaction.Direction == "Debit") // Money Out
-                        {
-                            account.Balance -= transaction.Amount;
-                        }
-                    }
-                }
-
-                if (transaction.CounterpartyAccountId.HasValue)
-                {
-                    var counterparty = await _context.FinancialAccounts.FindAsync(transaction.CounterpartyAccountId.Value);
-                    if (counterparty != null)
-                    {
-                        // Assuming Transfer logic:
-                        // Debit (Out) from Main -> Credit (In) to Counterparty
-                        if (transaction.Direction == "Debit")
-                        {
-                            counterparty.Balance += transaction.Amount;
-                        }
-                        else if (transaction.Direction == "Credit") // Rare: Receiving transfer FROM counterparty?
-                        {
-                            counterparty.Balance -= transaction.Amount;
-                        }
-                    }
-                }
-
                 await _context.SaveChangesAsync();
 
                 return ServiceResult<Transaction>.SuccessResult(transaction);
@@ -91,8 +56,6 @@ namespace fatortak.Services.TransactionService
             {
                 var query = _context.Transactions
                     .Include(t => t.Project)
-                    .Include(t => t.FinancialAccount)
-                    .Include(t => t.CounterpartyAccount)
                     .Where(t => t.TenantId == TenantId)
                     .AsQueryable();
 
@@ -115,7 +78,6 @@ namespace fatortak.Services.TransactionService
                 
                 // New Filters
                 if (filter.ProjectId.HasValue) query = query.Where(t => t.ProjectId == filter.ProjectId);
-                if (filter.FinancialAccountId.HasValue) query = query.Where(t => t.FinancialAccountId == filter.FinancialAccountId || t.CounterpartyAccountId == filter.FinancialAccountId);
                 if (!string.IsNullOrWhiteSpace(filter.Category)) query = query.Where(t => t.Category == filter.Category);
 
                 var totalCount = await query.CountAsync();
@@ -145,10 +107,7 @@ namespace fatortak.Services.TransactionService
         {
             try
             {
-                // This original method might be simplstic now that we have multiple accounts.
-                // It likely summed ALL transactions. 
-                // We should probably rely on FinancialAccount Balance now.
-                // But keeping it for backward compatibility if needed, using the old logic:
+                // This sums ALL transactions based on direction.
                 var balance = await _context.Transactions
                     .Where(t => t.TenantId == TenantId)
                     .SumAsync(t => t.Direction == "Credit" ? t.Amount : -t.Amount);
@@ -173,22 +132,6 @@ namespace fatortak.Services.TransactionService
                     return ServiceResult<bool>.Failure("Transaction not found");
                 }
 
-                // Reverse Balance Logic before deleting
-                if (transaction.FinancialAccountId.HasValue)
-                {
-                    var account = await _context.FinancialAccounts.FindAsync(transaction.FinancialAccountId.Value);
-                    if (account != null)
-                    {
-                        if (transaction.Direction == "Credit") // Was Money In, now take it out
-                        {
-                            account.Balance -= transaction.Amount;
-                        }
-                        else if (transaction.Direction == "Debit") // Was Money Out, now put it back
-                        {
-                            account.Balance += transaction.Amount;
-                        }
-                    }
-                }
 
                 _context.Transactions.Remove(transaction);
                 await _context.SaveChangesAsync();
@@ -214,48 +157,13 @@ namespace fatortak.Services.TransactionService
                     return ServiceResult<Transaction>.Failure("Transaction not found");
                 }
 
-                // Reverse old Balance Logic
-                if (transaction.FinancialAccountId.HasValue)
-                {
-                    var oldAccount = await _context.FinancialAccounts.FindAsync(transaction.FinancialAccountId.Value);
-                    if (oldAccount != null)
-                    {
-                        if (transaction.Direction == "Credit") // Revert Money In
-                        {
-                            oldAccount.Balance -= transaction.Amount;
-                        }
-                        else if (transaction.Direction == "Debit") // Revert Money Out
-                        {
-                            oldAccount.Balance += transaction.Amount;
-                        }
-                    }
-                }
-
                 // Update transaction properties
                 transaction.Amount = updatedTransaction.Amount;
                 transaction.TransactionDate = updatedTransaction.TransactionDate;
                 transaction.Description = updatedTransaction.Description;
                 transaction.ProjectId = updatedTransaction.ProjectId;
                 transaction.Category = updatedTransaction.Category;
-                transaction.FinancialAccountId = updatedTransaction.FinancialAccountId;
                 transaction.Direction = updatedTransaction.Direction ?? transaction.Direction;
-
-                // Apply new Balance Logic with updated account and amount
-                if (transaction.FinancialAccountId.HasValue)
-                {
-                    var newAccount = await _context.FinancialAccounts.FindAsync(transaction.FinancialAccountId.Value);
-                    if (newAccount != null)
-                    {
-                        if (transaction.Direction == "Credit") // Apply New Money In
-                        {
-                            newAccount.Balance += transaction.Amount;
-                        }
-                        else if (transaction.Direction == "Debit") // Apply New Money Out
-                        {
-                            newAccount.Balance -= transaction.Amount;
-                        }
-                    }
-                }
 
                 await _context.SaveChangesAsync();
 
@@ -265,82 +173,6 @@ namespace fatortak.Services.TransactionService
             {
                 _logger.LogError(ex, "Error updating transaction by reference");
                 return ServiceResult<Transaction>.Failure("Failed to update transaction");
-            }
-        }
-
-        public async Task<ServiceResult<bool>> TransferAsync(TransferDto transferDto)
-        {
-            using var transactionScope = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                var userIdString = _httpContextAccessor.HttpContext?.User?.FindFirst("uid")?.Value;
-                var userId = !string.IsNullOrEmpty(userIdString) ? Guid.Parse(userIdString) : Guid.Empty;
-
-                // 1. Create Debit Transaction (Transfer Out)
-                var debitTransaction = new Transaction
-                {
-                    TenantId = TenantId,
-                    TransactionDate = transferDto.Date,
-                    Type = "Transfer",
-                    Amount = transferDto.Amount,
-                    Direction = "Debit",
-                    Description = transferDto.Description ?? "Transfer Out",
-                    PaymentMethod = "Transfer",
-                    CreatedBy = userId,
-                    BranchId = transferDto.BranchId,
-                    ProjectId = transferDto.ProjectId,
-                    FinancialAccountId = transferDto.FromAccountId,
-                    CounterpartyAccountId = transferDto.ToAccountId,
-                    ReferenceType = "Transfer"
-                };
-
-                // 2. Create Credit Transaction (Transfer In)
-                var creditTransaction = new Transaction
-                {
-                    TenantId = TenantId,
-                    TransactionDate = transferDto.Date,
-                    Type = "Transfer",
-                    Amount = transferDto.Amount,
-                    Direction = "Credit",
-                    Description = transferDto.Description ?? "Transfer In",
-                    PaymentMethod = "Transfer",
-                    CreatedBy = userId,
-                    BranchId = transferDto.BranchId,
-                    ProjectId = transferDto.ProjectId,
-                    FinancialAccountId = transferDto.ToAccountId,
-                    CounterpartyAccountId = transferDto.FromAccountId,
-                    ReferenceType = "Transfer"
-                };
-
-                // Save transactions and update balances
-                // We use AddTransactionAsync logic but optimized to avoid double SaveChanges or multiple calls if possible, 
-                // but for clarity we can just add them to context and handle balances here.
-                
-                _context.Transactions.Add(debitTransaction);
-                _context.Transactions.Add(creditTransaction);
-
-                // Update Balances
-                var fromAccount = await _context.FinancialAccounts.FindAsync(transferDto.FromAccountId);
-                var toAccount = await _context.FinancialAccounts.FindAsync(transferDto.ToAccountId);
-
-                if (fromAccount == null || toAccount == null)
-                {
-                    return ServiceResult<bool>.Failure("One or both accounts not found");
-                }
-
-                fromAccount.Balance -= transferDto.Amount;
-                toAccount.Balance += transferDto.Amount;
-
-                await _context.SaveChangesAsync();
-                await transactionScope.CommitAsync();
-
-                return ServiceResult<bool>.SuccessResult(true);
-            }
-            catch (Exception ex)
-            {
-                await transactionScope.RollbackAsync();
-                _logger.LogError(ex, "Error during transfer");
-                return ServiceResult<bool>.Failure("Transfer failed");
             }
         }
     }

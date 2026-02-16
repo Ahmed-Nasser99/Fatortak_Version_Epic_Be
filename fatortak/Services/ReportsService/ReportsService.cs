@@ -1039,7 +1039,6 @@ namespace fatortak.Services.ReportsService
             {
                 var query = _context.Transactions
                     .Include(t => t.Project)
-                    .Include(t => t.FinancialAccount)
                     .Where(t => t.TenantId == _tenantId)
                     .AsQueryable();
 
@@ -1595,42 +1594,17 @@ namespace fatortak.Services.ReportsService
         #endregion
 
         #region Treasury Report
-        public async Task<ServiceResult<TreasuryReportDto>> GetTreasuryReportAsync(DateTime? fromDate, DateTime? toDate, Guid? financialAccountId)
+        public async Task<ServiceResult<TreasuryReportDto>> GetTreasuryReportAsync(DateTime? fromDate, DateTime? toDate)
         {
             try
             {
-                // 1. Get Accounts Balances
-                var accountsQuery = _context.FinancialAccounts
-                    .Where(a => a.TenantId == _tenantId);
-                
-                if (financialAccountId.HasValue)
-                    accountsQuery = accountsQuery.Where(a => a.Id == financialAccountId.Value);
-
-                var accounts = await accountsQuery
-                    .Select(a => new AccountBalanceDto
-                    {
-                        Id = a.Id,
-                        Name = a.Name,
-                        Type = a.Type.ToString(),
-                        Balance = a.Balance,
-                        Currency = a.Currency
-                    })
-                    .ToListAsync();
+                // 1. Get Accounts Balances (This report is now defunct or needs redesign)
+                var accounts = new List<AccountBalanceDto>();
 
                 // 2. Get Transactions
                 var transactionsQuery = _context.Transactions
-                    .Include(t => t.FinancialAccount)
-                    .Include(t => t.CounterpartyAccount)
                     .Where(t => t.TenantId == _tenantId)
                     .AsQueryable();
-
-                if (fromDate.HasValue) transactionsQuery = transactionsQuery.Where(t => t.TransactionDate >= fromDate.Value);
-                if (toDate.HasValue) transactionsQuery = transactionsQuery.Where(t => t.TransactionDate <= toDate.Value);
-
-                if (financialAccountId.HasValue)
-                {
-                    transactionsQuery = transactionsQuery.Where(t => t.FinancialAccountId == financialAccountId.Value || t.CounterpartyAccountId == financialAccountId.Value);
-                }
 
                 var transactions = await transactionsQuery
                     .OrderByDescending(t => t.TransactionDate)
@@ -1645,8 +1619,6 @@ namespace fatortak.Services.ReportsService
                         Description = t.Description,
                         Reference = t.ReferenceId,
                         ReferenceId = t.ReferenceId,
-                        FinancialAccountName = t.FinancialAccount != null ? t.FinancialAccount.Name : "",
-                        CounterpartyAccountName = t.CounterpartyAccount != null ? t.CounterpartyAccount.Name : "",
                         Category = t.Category
                     })
                     .ToListAsync();
@@ -1682,111 +1654,6 @@ namespace fatortak.Services.ReportsService
             // StartDate in AccountStatement used for "Opening Balance". If MinValue, Opening is 0.
             
             return await GetAccountStatementAsync(filter);
-        }
-        #endregion
-
-        #region Employee Custody Report
-        public async Task<ServiceResult<EmployeeCustodyReportDto>> GetEmployeeCustodyReportAsync(Guid employeeId, DateTime? fromDate, DateTime? toDate)
-        {
-            try
-            {
-                var custodyAccount = await _context.FinancialAccounts
-                    .FirstOrDefaultAsync(a => a.TenantId == _tenantId && a.EmployeeId == employeeId && a.Type == FinancialAccountType.Custody);
-
-                if (custodyAccount == null)
-                {
-                    // Maybe employee has no custody account yet.
-                    var employee = await _context.Employees.FindAsync(employeeId);
-                    if (employee == null) return ServiceResult<EmployeeCustodyReportDto>.Failure("Employee not found");
-                    
-                    return ServiceResult<EmployeeCustodyReportDto>.SuccessResult(new EmployeeCustodyReportDto
-                    {
-                        EmployeeId = employee.Id,
-                        EmployeeName = employee.FullName,
-                        CurrentBalance = 0,
-                        TotalReceived = 0,
-                        TotalSpent = 0,
-                        Transactions = new List<fatortak.Dtos.Transaction.TransactionDto>()
-                    });
-                }
-
-                var query = _context.Transactions
-                    .Where(t => t.TenantId == _tenantId && (t.FinancialAccountId == custodyAccount.Id || t.CounterpartyAccountId == custodyAccount.Id))
-                    .AsQueryable();
-
-                if (fromDate.HasValue) query = query.Where(t => t.TransactionDate >= fromDate.Value);
-                if (toDate.HasValue) query = query.Where(t => t.TransactionDate <= toDate.Value);
-
-                var transactions = await query
-                    .OrderByDescending(t => t.TransactionDate)
-                    .Select(t => new fatortak.Dtos.Transaction.TransactionDto
-                    {
-                        Id = t.Id,
-                        Date = t.TransactionDate.ToString("dd MMM yyyy"),
-                        TransactionDate = t.TransactionDate,
-                        Type = t.Type,
-                        Amount = t.Amount,
-                        Direction = t.Direction,
-                        Description = t.Description,
-                        Reference = t.ReferenceId,
-                        ReferenceId = t.ReferenceId,
-                        AttachmentUrl = t.AttachmentUrl,
-                        Category = t.Category
-                    })
-                    .ToListAsync();
-
-                // Calculate Totals based on custody perspective
-                decimal totalReceived = 0;
-                decimal totalSpent = 0;
-
-                foreach (var t in query.ToList()) // Re-iterate or use list.
-                // Note: 'transactions' is DTOs. I need original 't' or map logic in Select.
-                // Let's iterate the 'transactions' DTOs but I need to know which account was which.
-                // Better to calculate from query or fetch necessary IDs in DTO.
-                {
-                    // Logic:
-                    // If t.FinancialAccountId == custodyAccount.Id:
-                    //   Credit -> Received
-                    //   Debit -> Spent
-                    // If t.CounterpartyAccountId == custodyAccount.Id:
-                    //   t.Direction refers to Main Account.
-                    //   Main Debit (Out) -> Counterparty Credit (In/Received)
-                    //   Main Credit (In) -> Counterparty Debit (Out/Spent)
-                    
-                    bool isMain = t.FinancialAccountId == custodyAccount.Id;
-                    
-                    if (isMain)
-                    {
-                        if (t.Direction == "Credit") totalReceived += t.Amount;
-                        else if (t.Direction == "Debit") totalSpent += t.Amount;
-                    }
-                    else // isCounterparty
-                    {
-                        if (t.Direction == "Debit") totalReceived += t.Amount; // Main sent money to custody
-                        else if (t.Direction == "Credit") totalSpent += t.Amount; // Custody sent money to Main
-                    }
-                }
-                
-                // Correction: The sorting/pagination for transactions list is needed? 
-                // Report requests usually list all or paginated. 
-                // The DTO has List<TransactionDto>. I'll return all for now or I need to request pagination.
-                // For simplicity returning all in range.
-
-                return ServiceResult<EmployeeCustodyReportDto>.SuccessResult(new EmployeeCustodyReportDto
-                {
-                    EmployeeId = employeeId,
-                    EmployeeName = _context.Employees.Find(employeeId)?.FullName ?? "Unknown",
-                    CurrentBalance = custodyAccount.Balance, // Real-time balance
-                    TotalReceived = totalReceived,
-                    TotalSpent = totalSpent,
-                    Transactions = transactions
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting employee custody report");
-                return ServiceResult<EmployeeCustodyReportDto>.Failure("Failed to retrieve custody report");
-            }
         }
         #endregion
     }

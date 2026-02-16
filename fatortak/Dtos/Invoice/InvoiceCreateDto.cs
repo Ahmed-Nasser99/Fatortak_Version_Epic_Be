@@ -25,6 +25,5 @@ namespace fatortak.Dtos.Invoice
 
         public List<InstallmentCreateDto>? Installments { get; set; }
 
-        public Guid? FinancialAccountId { get; set; }
     }
 }

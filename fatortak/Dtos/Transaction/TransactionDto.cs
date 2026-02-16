@@ -19,12 +19,6 @@ namespace fatortak.Dtos.Transaction
         public Guid? ProjectId { get; set; }
         public string? ProjectName { get; set; }
 
-        public Guid? FinancialAccountId { get; set; }
-        public string? FinancialAccountName { get; set; }
-
-        public Guid? CounterpartyAccountId { get; set; }
-        public string? CounterpartyAccountName { get; set; }
-
         public string? AttachmentUrl { get; set; }
         public string? Category { get; set; }
     }

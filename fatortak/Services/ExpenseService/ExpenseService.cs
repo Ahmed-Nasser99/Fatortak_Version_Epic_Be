@@ -3,6 +3,7 @@ using fatortak.Dtos.Expense;
 using fatortak.Dtos.Shared;
 using fatortak.Entities;
 using fatortak.Services.TransactionService;
+using fatortak.Services.AccountingPostingService;
 using Microsoft.EntityFrameworkCore;
 
 namespace fatortak.Services.ExpenseService
@@ -14,19 +15,22 @@ namespace fatortak.Services.ExpenseService
         private readonly ILogger<ExpenseService> _logger;
         private readonly IWebHostEnvironment _hostingEnvironment;
         private readonly ITransactionService _transactionService;
+        private readonly IAccountingPostingService _accountingPostingService;
 
         public ExpenseService(
             ApplicationDbContext context,
             IHttpContextAccessor httpContextAccessor,
             ILogger<ExpenseService> logger,
             IWebHostEnvironment hostingEnvironment,
-            ITransactionService transactionService)
+            ITransactionService transactionService,
+            IAccountingPostingService accountingPostingService)
         {
             _context = context;
             _httpContextAccessor = httpContextAccessor;
             _logger = logger;
             _hostingEnvironment = hostingEnvironment;
             _transactionService = transactionService;
+            _accountingPostingService = accountingPostingService;
         }
 
         private Guid _tenantId =>
@@ -152,7 +156,6 @@ namespace fatortak.Services.ExpenseService
                     BranchId = expenseDto.BranchId,
                     ProjectId = expenseDto.ProjectId,
                     Category = expenseDto.Category,
-                    FinancialAccountId = expenseDto.FinancialAccountId,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -178,7 +181,6 @@ namespace fatortak.Services.ExpenseService
                     CreatedBy = userId,
                     BranchId = expense.BranchId,
                     ProjectId = expense.ProjectId,
-                    FinancialAccountId = expenseDto.FinancialAccountId,
                     Category = expense.Category
                 };
 
@@ -207,6 +209,25 @@ namespace fatortak.Services.ExpenseService
                     _context.Expenses.Remove(expense);
                     await _context.SaveChangesAsync();
                     return ServiceResult<ExpenseDto>.Failure($"Failed to create transaction: {transactionResult.ErrorMessage}");
+                }
+
+                // Automatically post expense to accounting
+                try
+                {
+                    var posted = await _accountingPostingService.PostExpenseAsync(expense.Id);
+                    if (posted)
+                    {
+                        _logger.LogInformation("Successfully auto-posted expense {ExpenseId} to accounting", expense.Id);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Failed to auto-post expense {ExpenseId} to accounting. Expense created but not posted.", expense.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error auto-posting expense {ExpenseId} to accounting. Expense created but not posted.", expense.Id);
+                    // Don't fail expense creation if posting fails - log and continue
                 }
 
                 return ServiceResult<ExpenseDto>.SuccessResult(MapToDto(expense));
@@ -268,7 +289,7 @@ namespace fatortak.Services.ExpenseService
                 if (expenseDto.BranchId.HasValue) expense.BranchId = expenseDto.BranchId.Value;
                 if (expenseDto.ProjectId.HasValue) expense.ProjectId = expenseDto.ProjectId.Value;
                 if (expenseDto.Category != null) expense.Category = expenseDto.Category;
-                if (expenseDto.FinancialAccountId.HasValue) expense.FinancialAccountId = expenseDto.FinancialAccountId.Value;
+                if (expenseDto.Category != null) expense.Category = expenseDto.Category;
 
                 expense.UpdatedAt = DateTime.UtcNow;
 
@@ -353,8 +374,7 @@ namespace fatortak.Services.ExpenseService
                 UpdatedAt = expense.UpdatedAt,
                 ProjectId = expense.ProjectId,
                 ProjectName = expense.Project?.Name,
-                Category = expense.Category,
-                FinancialAccountId = expense.FinancialAccountId
+                Category = expense.Category
             };
         }
 

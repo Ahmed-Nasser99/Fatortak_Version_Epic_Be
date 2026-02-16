@@ -41,12 +41,6 @@ namespace fatortak.Entities
         public Guid? ProjectId { get; set; }
         public Project? Project { get; set; }
 
-        public Guid? FinancialAccountId { get; set; }
-        public FinancialAccount? FinancialAccount { get; set; }
-
-        // For transfers: The destination account (if this is debit) or source (if credit)
-        public Guid? CounterpartyAccountId { get; set; }
-        public FinancialAccount? CounterpartyAccount { get; set; }
 
         public string? AttachmentUrl { get; set; }
         

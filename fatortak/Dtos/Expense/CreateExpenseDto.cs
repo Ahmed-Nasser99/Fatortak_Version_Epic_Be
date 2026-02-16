@@ -9,6 +9,5 @@
         public Guid? BranchId { get; set; }
         public Guid? ProjectId { get; set; }
         public string? Category { get; set; }
-        public Guid? FinancialAccountId { get; set; } // Account to pay from
     }
 }

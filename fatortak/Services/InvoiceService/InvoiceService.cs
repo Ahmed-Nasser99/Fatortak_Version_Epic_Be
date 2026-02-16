@@ -7,6 +7,7 @@ using fatortak.Entities;
 using fatortak.Helpers;
 using Microsoft.EntityFrameworkCore;
 using fatortak.Services.TransactionService;
+using fatortak.Services.AccountingPostingService;
 
 namespace fatortak.Services.InvoiceService
 {
@@ -16,17 +17,20 @@ namespace fatortak.Services.InvoiceService
         private readonly ILogger<InvoiceService> _logger;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ITransactionService _transactionService;
+        private readonly IAccountingPostingService _accountingPostingService;
 
         public InvoiceService(
             ApplicationDbContext context,
             ILogger<InvoiceService> logger,
             IHttpContextAccessor httpContextAccessor,
-            ITransactionService transactionService)
+            ITransactionService transactionService,
+            IAccountingPostingService accountingPostingService)
         {
             _context = context;
             _logger = logger;
             _httpContextAccessor = httpContextAccessor;
             _transactionService = transactionService;
+            _accountingPostingService = accountingPostingService;
         }
 
         private Guid TenantId => GetCurrentTenantId();
@@ -141,7 +145,6 @@ namespace fatortak.Services.InvoiceService
                     Benefits = dto.Benefits.GetValueOrDefault(),
                     BranchId = dto.BranchId,
                     ProjectId = dto.ProjectId,
-                    FinancialAccountId = dto.FinancialAccountId,
                     Status = InvoiceStatus.Draft.ToString() // Always start as draft
                 };
 
@@ -252,7 +255,6 @@ namespace fatortak.Services.InvoiceService
                             ReferenceType = "Invoice",
                             Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
                             PaymentMethod = "Cash",
-                            FinancialAccountId = invoice.FinancialAccountId,
                             ProjectId = invoice.ProjectId
                         });
                     }
@@ -315,7 +317,6 @@ namespace fatortak.Services.InvoiceService
                     Benefits = dto.Benefits.GetValueOrDefault(),
                     BranchId = dto.BranchId,
                     ProjectId = dto.ProjectId,
-                    FinancialAccountId = dto.FinancialAccountId,
                     Status = dto.Status ?? InvoiceStatus.Draft.ToString() // Always start as draft
                 };
 
@@ -404,7 +405,6 @@ namespace fatortak.Services.InvoiceService
                             Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
                             PaymentMethod = "Cash",
                             BranchId = invoice.BranchId,
-                            FinancialAccountId = invoice.FinancialAccountId,
                             ProjectId = invoice.ProjectId
                         });
                     }
@@ -1079,6 +1079,33 @@ namespace fatortak.Services.InvoiceService
                 invoice.Status = status;
                 invoice.UpdatedAt = DateTime.UtcNow;
 
+                // Automatically post invoice to accounting when status changes to Pending or Paid
+                if ((status == InvoiceStatus.Pending.ToString() || status == InvoiceStatus.Paid.ToString()) 
+                    && oldStatus != InvoiceStatus.Pending.ToString() && oldStatus != InvoiceStatus.Paid.ToString())
+                {
+                    try
+                    {
+                        var isPosted = await _accountingPostingService.IsInvoicePostedAsync(invoiceId);
+                        if (!isPosted)
+                        {
+                            var posted = await _accountingPostingService.PostInvoiceAsync(invoiceId);
+                            if (!posted)
+                            {
+                                _logger.LogWarning("Failed to automatically post invoice {InvoiceId} to accounting. Continuing with status update.", invoiceId);
+                            }
+                            else
+                            {
+                                _logger.LogInformation("Successfully auto-posted invoice {InvoiceId} to accounting", invoiceId);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error auto-posting invoice {InvoiceId} to accounting. Continuing with status update.", invoiceId);
+                        // Don't fail the status update if posting fails - log and continue
+                    }
+                }
+
                 // Handle Paid status
                 if (status == InvoiceStatus.Paid.ToString())
                 {
@@ -1116,6 +1143,23 @@ namespace fatortak.Services.InvoiceService
                             CreatedBy = userId,
                             BranchId = invoice.BranchId
                         });
+
+                        // Auto-post payment to accounting
+                        try
+                        {
+                            var paymentPosted = await _accountingPostingService.PostPaymentAsync(
+                                invoice.Id, 
+                                invoice.Total);
+                            if (paymentPosted)
+                            {
+                                _logger.LogInformation("Successfully auto-posted payment for invoice {InvoiceId} to accounting", invoiceId);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error auto-posting payment for invoice {InvoiceId} to accounting", invoiceId);
+                            // Don't fail - log and continue
+                        }
                     }
 
                     // If coming from Cancelled or Draft, process inventory

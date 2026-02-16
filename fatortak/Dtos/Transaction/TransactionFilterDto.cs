@@ -11,7 +11,6 @@ namespace fatortak.Dtos.Transaction
         public string? ReferenceId { get; set; }
         public string? ReferenceType { get; set; }
         public Guid? ProjectId { get; set; }
-        public Guid? FinancialAccountId { get; set; }
         public string? Category { get; set; }
     }
 }
