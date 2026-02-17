@@ -13,12 +13,12 @@
         public Guid? ProjectId { get; set; }
         public string? ProjectName { get; set; }
         
-        public Guid? AccountId { get; set; }
-        public string? AccountName { get; set; }
+        public Guid? CategoryId { get; set; }
+        public string? CategoryName { get; set; }
         
-        public string? Category { get; set; }
-
-
+        public Guid? PaymentAccountId { get; set; }
+        public string? PaymentAccountName { get; set; }
+        
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }

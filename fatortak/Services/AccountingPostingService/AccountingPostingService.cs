@@ -263,7 +263,8 @@ namespace fatortak.Services.AccountingPostingService
 
                 // Load expense
                 var expense = await _context.Expenses
-                    .Include(e => e.Account)
+                    .Include(e => e.Category)
+                    .Include(e => e.PaymentAccount)
                     .FirstOrDefaultAsync(e => e.Id == expenseId && e.TenantId == TenantId);
 
                 if (expense == null)
@@ -273,34 +274,43 @@ namespace fatortak.Services.AccountingPostingService
                 }
 
                 // Get accounts
-                // Expense Paid Cash/Bank:
-                //   Dr Expense Account
-                //   Cr Cash/Bank Account
+                // Expense:
+                //   Dr Expense (Category Account)
+                //   Cr Payment Source (Cash/Bank/Employee)
 
-                var expenseAccount = await GetAccountByCodeAsync("5000"); // Default Expense Account
+                Account? expenseAccount = null;
                 
-                // If the expense has a specific account selected, use it
-                if (expense.AccountId.HasValue)
+                // 1. Try to get account from Category
+                if (expense.CategoryId.HasValue)
                 {
-                    var selectedAccount = await _context.Accounts
-                        .FirstOrDefaultAsync(a => a.Id == expense.AccountId.Value && a.TenantId == TenantId);
-                    
-                    if (selectedAccount != null)
+                    if (expense.Category == null)
                     {
-                        expenseAccount = selectedAccount;
+                         expense.Category = await _context.ExpenseCategories
+                            .Include(c => c.Account)
+                            .FirstOrDefaultAsync(c => c.Id == expense.CategoryId.Value);
                     }
+                    expenseAccount = expense.Category?.Account;
                 }
-                else if (!string.IsNullOrWhiteSpace(expense.Category))
+                
+                // Fallback to default if category account missing
+                if (expenseAccount == null)
                 {
-                    // Try to get expense account by category if mapping exists
-                    var categoryAccount = await GetAccountByNameAsync($"Expense - {expense.Category}");
-                    if (categoryAccount != null)
-                    {
-                        expenseAccount = categoryAccount;
-                    }
+                    expenseAccount = await GetAccountByCodeAsync("5000"); // Default Expense Account
                 }
 
-                var cashAccount = await GetAccountByCodeAsync("1000"); // Cash Account
+                // 2. Get payment account
+                var cashAccount = expense.PaymentAccount;
+                if (cashAccount == null && expense.PaymentAccountId.HasValue)
+                {
+                    cashAccount = await _context.Accounts
+                        .FirstOrDefaultAsync(a => a.Id == expense.PaymentAccountId.Value && a.TenantId == TenantId);
+                }
+                
+                // Fallback to default cash if payment account missing
+                if (cashAccount == null)
+                {
+                    cashAccount = await GetAccountByCodeAsync("1000"); // Default Cash Account
+                }
 
                 if (expenseAccount == null || cashAccount == null)
                 {
@@ -319,9 +329,9 @@ namespace fatortak.Services.AccountingPostingService
                     EntryNumber = entryNumber,
                     Date = expense.Date.ToDateTime(TimeOnly.MinValue).Date,
                     ReferenceType = JournalEntryReferenceType.Expense,
-                    ReferenceId = null, // Expense uses int ID, store reference in description
+                    ReferenceId = null,
                     ProjectId = expense.ProjectId,
-                    Description = $"Expense ID: {expenseId} - {expenseAccount.Name} - {expense.Notes}",
+                    Description = $"Expense ID: {expenseId} - Category: {expense.Category?.Name ?? "General"} - Paid via: {cashAccount.Name}",
                     IsPosted = true,
                     PostedAt = DateTime.UtcNow,
                     PostedBy = CurrentUserId,

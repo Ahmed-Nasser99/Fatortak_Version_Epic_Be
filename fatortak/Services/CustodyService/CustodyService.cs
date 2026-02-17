@@ -214,14 +214,21 @@ namespace fatortak.Services.CustodyService
                 // Get or create employee custody account
                 var custodyAccountId = await GetOrCreateEmployeeCustodyAccountAsync(employeeId, employee.FullName);
 
-                // Get expense account
+                // Get expense category account
                 var expenseAccount = await GetAccountByCodeAsync("5000"); // Default Expense Account
-                if (!string.IsNullOrWhiteSpace(expense.Category))
+                
+                if (expense.CategoryId.HasValue)
                 {
-                    var categoryAccount = await GetAccountByNameAsync($"Expense - {expense.Category}");
-                    if (categoryAccount != null)
+                    // Load category to get associated account
+                    await _context.Entry(expense).Reference(e => e.Category).LoadAsync();
+                    if (expense.Category?.AccountId != null)
                     {
-                        expenseAccount = categoryAccount;
+                        var categoryAccount = await _context.Accounts
+                            .FirstOrDefaultAsync(a => a.Id == expense.Category.AccountId && a.TenantId == TenantId);
+                        if (categoryAccount != null)
+                        {
+                            expenseAccount = categoryAccount;
+                        }
                     }
                 }
 
@@ -261,7 +268,7 @@ namespace fatortak.Services.CustodyService
                     AccountId = expenseAccount.Id,
                     Debit = expense.Total,
                     Credit = 0,
-                    Description = expense.Notes ?? $"Expense - {expense.Category}"
+                    Description = expense.Notes ?? $"Expense - {expense.Category?.Name ?? "General"}"
                 });
 
                 // Cr Employee Custody Account

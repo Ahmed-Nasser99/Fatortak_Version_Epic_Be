@@ -7,6 +7,7 @@ using fatortak.Entities;
 using fatortak.Services.EmailService;
 using fatortak.Services.TenantService;
 using fatortak.Services.TokenService;
+using fatortak.Services.ExpenseCategoryService;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
@@ -18,26 +19,29 @@ namespace fatortak.Services.AuthService
     public class AuthService : IAuthService
     {
         private readonly UserManager<ApplicationUser> _userManager;
-        private readonly RoleManager<IdentityRole<Guid>> _roleManager; // Added missing field
+        private readonly RoleManager<IdentityRole<Guid>> _roleManager;
         private readonly ITokenService _tokenService;
         private readonly ITenantService _tenantService;
+        private readonly IExpenseCategoryService _expenseCategoryService;
         private readonly IEmailService _emailServices;
         private readonly ILogger<AuthService> _logger;
         private readonly ApplicationDbContext _context;
 
         public AuthService(
             UserManager<ApplicationUser> userManager,
-            RoleManager<IdentityRole<Guid>> roleManager, // Added to constructor
+            RoleManager<IdentityRole<Guid>> roleManager,
             ITokenService tokenService,
             ITenantService tenantService,
+            IExpenseCategoryService expenseCategoryService,
             ILogger<AuthService> logger,
             ApplicationDbContext context,
             IEmailService emailServices)
         {
             _userManager = userManager;
-            _roleManager = roleManager; // Initialize the field
+            _roleManager = roleManager;
             _tokenService = tokenService;
             _tenantService = tenantService;
+            _expenseCategoryService = expenseCategoryService;
             _logger = logger;
             _context = context;
             _emailServices = emailServices;
@@ -127,11 +131,14 @@ namespace fatortak.Services.AuthService
                 {
                     await Seeding.AccountSeeder.SeedAccountsForNewTenantAsync(_context, tenant.Id);
                     _logger.LogInformation("Successfully seeded default accounts for tenant {TenantId} during registration", tenant.Id);
+                    
+                    // Seed Expense Categories
+                    await _expenseCategoryService.SeedDefaultCategoriesAsync(tenant.Id);
+                    _logger.LogInformation("Successfully seeded default expense categories for tenant {TenantId} during registration", tenant.Id);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error seeding accounts for tenant {TenantId} during registration. User created but accounts not seeded.", tenant.Id);
-                    // We don't fail the whole registration if seeding fails, similar to TenantService behavior
+                    _logger.LogError(ex, "Error seeding accounts or categories for tenant {TenantId} during registration.", tenant.Id);
                 }
 
                 // 7. Create Default Company Profile (if not already created by tenant creation)

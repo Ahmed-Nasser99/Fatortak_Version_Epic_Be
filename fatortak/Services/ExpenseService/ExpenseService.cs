@@ -42,7 +42,8 @@ namespace fatortak.Services.ExpenseService
             {
                 var query = _context.Expenses
                     .Include(e => e.Project)
-                    .Include(e => e.Account)
+                    .Include(e => e.Category)
+                    .Include(e => e.PaymentAccount)
                     .Where(e => e.TenantId == _tenantId)
                     .OrderByDescending(e => e.Date)
                     .AsQueryable();
@@ -56,8 +57,8 @@ namespace fatortak.Services.ExpenseService
                 if (filter.ProjectId.HasValue)
                     query = query.Where(e => e.ProjectId == filter.ProjectId.Value);
                     
-                if (!string.IsNullOrWhiteSpace(filter.Category))
-                    query = query.Where(e => e.Category == filter.Category);
+                if (!string.IsNullOrWhiteSpace(filter.Category) && Guid.TryParse(filter.Category, out var catId))
+                    query = query.Where(e => e.CategoryId == catId);
 
                 // Get total count before pagination
                 var totalCount = await query.CountAsync();
@@ -109,7 +110,8 @@ namespace fatortak.Services.ExpenseService
             {
                 var expense = await _context.Expenses
                     .Include(e => e.Project)
-                    .Include(e => e.Account)
+                    .Include(e => e.Category)
+                    .Include(e => e.PaymentAccount)
                     .FirstOrDefaultAsync(e => e.TenantId == _tenantId && e.Id == id);
 
                 if (expense == null)
@@ -157,13 +159,19 @@ namespace fatortak.Services.ExpenseService
                     TenantId = _tenantId,
                     BranchId = expenseDto.BranchId,
                     ProjectId = expenseDto.ProjectId,
-                    AccountId = expenseDto.AccountId,
-                    Category = expenseDto.Category,
+                    CategoryId = expenseDto.CategoryId,
+                    PaymentAccountId = expenseDto.PaymentAccountId,
                     CreatedAt = DateTime.UtcNow
                 };
 
                 _context.Expenses.Add(expense);
                 await _context.SaveChangesAsync();
+
+                // Load category to get its name for the transaction
+                if (expense.CategoryId.HasValue)
+                {
+                    await _context.Entry(expense).Reference(e => e.Category).LoadAsync();
+                }
 
                 // Create Transaction Record
                 var userIdString = _httpContextAccessor.HttpContext?.User?.FindFirst("uid")?.Value;
@@ -184,7 +192,7 @@ namespace fatortak.Services.ExpenseService
                     CreatedBy = userId,
                     BranchId = expense.BranchId,
                     ProjectId = expense.ProjectId,
-                    Category = expense.Category
+                    Category = expense.Category?.Name
                 };
 
                 // Add Attachment URL to Transaction if file exists
@@ -291,13 +299,18 @@ namespace fatortak.Services.ExpenseService
                 if (expenseDto.Notes != null) expense.Notes = expenseDto.Notes;
                 if (expenseDto.BranchId.HasValue) expense.BranchId = expenseDto.BranchId.Value;
                 if (expenseDto.ProjectId.HasValue) expense.ProjectId = expenseDto.ProjectId.Value;
-                if (expenseDto.AccountId.HasValue) expense.AccountId = expenseDto.AccountId.Value;
-                if (expenseDto.Category != null) expense.Category = expenseDto.Category;
-                if (expenseDto.Category != null) expense.Category = expenseDto.Category;
+                if (expenseDto.CategoryId.HasValue) expense.CategoryId = expenseDto.CategoryId.Value;
+                if (expenseDto.PaymentAccountId.HasValue) expense.PaymentAccountId = expenseDto.PaymentAccountId.Value;
 
                 expense.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
+
+                // Load category to get its name for the transaction
+                if (expense.CategoryId.HasValue)
+                {
+                    await _context.Entry(expense).Reference(e => e.Category).LoadAsync();
+                }
 
                 // Update Transaction Record
                 var transactionUpdate = new Transaction
@@ -306,7 +319,7 @@ namespace fatortak.Services.ExpenseService
                     TransactionDate = expense.Date.ToDateTime(TimeOnly.MinValue),
                     Description = expense.Notes ?? "Expense",
                     ProjectId = expense.ProjectId,
-                    Category = expense.Category
+                    Category = expense.Category?.Name
                 };
                 await _transactionService.UpdateTransactionByReferenceAsync(expense.Id.ToString(), "Expense", transactionUpdate);
 
@@ -378,9 +391,10 @@ namespace fatortak.Services.ExpenseService
                 UpdatedAt = expense.UpdatedAt,
                 ProjectId = expense.ProjectId,
                 ProjectName = expense.Project?.Name,
-                AccountId = expense.AccountId,
-                AccountName = expense.Account?.Name,
-                Category = expense.Category
+                CategoryId = expense.CategoryId,
+                CategoryName = expense.Category?.Name,
+                PaymentAccountId = expense.PaymentAccountId,
+                PaymentAccountName = expense.PaymentAccount?.Name
             };
         }
 

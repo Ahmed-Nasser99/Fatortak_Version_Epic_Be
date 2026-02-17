@@ -1,4 +1,6 @@
-﻿namespace fatortak.Entities
+﻿using System.ComponentModel.DataAnnotations.Schema;
+
+namespace fatortak.Entities
 {
     public class Expenses : ITenantEntity
     {
@@ -10,13 +12,17 @@
         public string? OriginalFileName { get; set; }
         public Guid TenantId { get; set; }
         public Guid? BranchId { get; set; }
-        public string? Category { get; set; } // e.g., Raw Materials, Transportation
-
+        
         public Guid? ProjectId { get; set; }
         public Project? Project { get; set; }
 
-        public Guid? AccountId { get; set; }
-        public Account? Account { get; set; }
+        public Guid? CategoryId { get; set; }
+        [ForeignKey(nameof(CategoryId))]
+        public ExpenseCategory? Category { get; set; }
+
+        public Guid? PaymentAccountId { get; set; }
+        [ForeignKey(nameof(PaymentAccountId))]
+        public Account? PaymentAccount { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }

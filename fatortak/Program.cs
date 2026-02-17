@@ -36,6 +36,7 @@ using fatortak.Services.ProjectService;
 using fatortak.Services.AccountingService;
 using fatortak.Services.AccountingPostingService;
 using fatortak.Services.CustodyService;
+using fatortak.Services.ExpenseCategoryService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -160,6 +161,7 @@ namespace fatortak
             builder.Services.AddScoped<IAccountingService, AccountingService>();
             builder.Services.AddScoped<IAccountingPostingService, AccountingPostingService>();
             builder.Services.AddScoped<ICustodyService, CustodyService>();
+            builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
             #endregion
 
 
@@ -238,10 +240,19 @@ namespace fatortak
                     {
                         Seeding.AccountSeeder.SeedAccountsAsync(context).GetAwaiter().GetResult();
                         Console.WriteLine("Chart of Accounts seeded successfully for all tenants.");
+
+                        // Backfill Expense Categories
+                        var expenseCategoryService = scope.ServiceProvider.GetRequiredService<IExpenseCategoryService>();
+                        var tenants = context.Tenants.ToList();
+                        foreach (var tenant in tenants)
+                        {
+                            expenseCategoryService.SeedDefaultCategoriesAsync(tenant.Id).GetAwaiter().GetResult();
+                        }
+                        Console.WriteLine("Expense Categories backfilled successfully for all tenants.");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error seeding Chart of Accounts: {ex.Message}");
+                        Console.WriteLine($"Error seeding Chart of Accounts or Categories: {ex.Message}");
                     }
                 }
             }

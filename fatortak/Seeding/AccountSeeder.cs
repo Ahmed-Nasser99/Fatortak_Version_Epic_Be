@@ -333,6 +333,21 @@ namespace fatortak.Seeding
                 CreatedAt = DateTime.UtcNow
             });
 
+            accounts.Add(new Account
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                AccountCode = "5600",
+                Name = "Salaries",
+                AccountType = AccountType.Expense,
+                Level = 0,
+                IsActive = true,
+                IsPostable = true,
+                IsSystem = true,
+                Description = "Salaries and wages",
+                CreatedAt = DateTime.UtcNow
+            });
+
             // Add all accounts to context
             context.Accounts.AddRange(accounts);
             await context.SaveChangesAsync();

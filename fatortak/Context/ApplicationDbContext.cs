@@ -47,6 +47,7 @@ namespace fatortak.Context
         public DbSet<Account> Accounts { get; set; }
         public DbSet<JournalEntry> JournalEntries { get; set; }
         public DbSet<JournalEntryLine> JournalEntryLines { get; set; }
+        public DbSet<ExpenseCategory> ExpenseCategories { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
