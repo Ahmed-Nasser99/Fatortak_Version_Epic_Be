@@ -283,13 +283,15 @@ namespace fatortak.Services.AccountingPostingService
                 // 1. Try to get account from Category
                 if (expense.CategoryId.HasValue)
                 {
-                    if (expense.Category == null)
+                    var category = await _context.ExpenseCategories
+                        .Include(c => c.Account)
+                        .FirstOrDefaultAsync(c => c.Id == expense.CategoryId.Value);
+                    
+                    if (category != null)
                     {
-                         expense.Category = await _context.ExpenseCategories
-                            .Include(c => c.Account)
-                            .FirstOrDefaultAsync(c => c.Id == expense.CategoryId.Value);
+                        expenseAccount = category.Account;
+                        expense.Category = category;
                     }
-                    expenseAccount = expense.Category?.Account;
                 }
                 
                 // Fallback to default if category account missing
@@ -349,7 +351,7 @@ namespace fatortak.Services.AccountingPostingService
                     AccountId = expenseAccount.Id,
                     Debit = expense.Total,
                     Credit = 0,
-                    Description = expense.Notes ?? $"Expense - {expense.Category}"
+                    Description = expense.Notes ?? $"Expense - {expense.Category?.Name ?? "General"}"
                 });
 
                 // Cr Cash Account
@@ -360,7 +362,7 @@ namespace fatortak.Services.AccountingPostingService
                     AccountId = cashAccount.Id,
                     Debit = 0,
                     Credit = expense.Total,
-                    Description = $"Payment for expense - {expense.Category}"
+                    Description = $"Payment for expense - {expense.Category?.Name ?? "General"}"
                 });
 
                 await _context.SaveChangesAsync();
