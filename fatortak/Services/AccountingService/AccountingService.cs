@@ -279,6 +279,12 @@ namespace fatortak.Services.AccountingService
                     return ServiceResult<bool>.Failure("Account not found");
                 }
 
+                // Cannot delete system accounts
+                if (account.IsSystem)
+                {
+                    return ServiceResult<bool>.Failure("Cannot delete system accounts");
+                }
+
                 // Cannot delete account with children
                 if (account.ChildAccounts.Any())
                 {
@@ -323,6 +329,84 @@ namespace fatortak.Services.AccountingService
                 _logger.LogError(ex, "Error getting account hierarchy");
                 return ServiceResult<List<AccountDto>>.Failure($"Error getting account hierarchy: {ex.Message}");
             }
+        }
+
+        public async Task<ServiceResult<AccountDto>> GetOrCreateAccountForEntityAsync(string entityName, AccountType accountType, Guid? parentAccountId, string? accountCode = null)
+        {
+            try
+            {
+                // If account code is not provided, generate one based on parent or sequence
+                if (string.IsNullOrWhiteSpace(accountCode))
+                {
+                    accountCode = await GenerateAccountCodeAsync(parentAccountId, accountType);
+                }
+
+                // Check if account already exists with this name and parent
+                var existingAccount = await _context.Accounts
+                    .FirstOrDefaultAsync(a => a.TenantId == TenantId && a.Name == entityName && a.ParentAccountId == parentAccountId);
+
+                if (existingAccount != null)
+                {
+                    return ServiceResult<AccountDto>.SuccessResult(MapToDto(existingAccount));
+                }
+
+                // Create new account
+                var createDto = new AccountCreateDto
+                {
+                    AccountCode = accountCode,
+                    Name = entityName,
+                    AccountType = accountType,
+                    ParentAccountId = parentAccountId,
+                    IsActive = true,
+                    IsPostable = true // Automatic accounts are leaf accounts initially
+                };
+
+                return await CreateAccountAsync(createDto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetOrCreateAccountForEntityAsync");
+                return ServiceResult<AccountDto>.Failure($"Error creating automatic account: {ex.Message}");
+            }
+        }
+
+        private async Task<string> GenerateAccountCodeAsync(Guid? parentAccountId, AccountType accountType)
+        {
+            string baseCode = "";
+            if (parentAccountId.HasValue)
+            {
+                var parent = await _context.Accounts.FindAsync(parentAccountId.Value);
+                if (parent != null)
+                {
+                    baseCode = parent.AccountCode;
+                }
+            }
+            else
+            {
+                // Default base codes for account types if no parent
+                baseCode = ((int)accountType * 1000).ToString();
+            }
+
+            // Find the highest existing code under this parent or with this prefix
+            var prefix = baseCode;
+            var maxExistingCode = await _context.Accounts
+                .Where(a => a.TenantId == TenantId && a.AccountCode.StartsWith(prefix) && a.AccountCode != prefix)
+                .OrderByDescending(a => a.AccountCode)
+                .Select(a => a.AccountCode)
+                .FirstOrDefaultAsync();
+
+            if (string.IsNullOrEmpty(maxExistingCode))
+            {
+                return prefix + "01";
+            }
+
+            // Try to increment the last part
+            if (long.TryParse(maxExistingCode, out long lastCode))
+            {
+                return (lastCode + 1).ToString();
+            }
+
+            return prefix + "_" + Guid.NewGuid().ToString().Substring(0, 4);
         }
 
         #endregion
@@ -1040,9 +1124,11 @@ namespace fatortak.Services.AccountingService
                 Level = account.Level,
                 IsActive = account.IsActive,
                 IsPostable = account.IsPostable,
+                IsSystem = account.IsSystem,
                 Description = account.Description,
                 CreatedAt = account.CreatedAt,
-                UpdatedAt = account.UpdatedAt
+                UpdatedAt = account.UpdatedAt,
+                Balance = 0 // Should be calculated if needed
             };
         }
 

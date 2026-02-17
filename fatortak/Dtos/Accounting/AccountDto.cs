@@ -18,6 +18,7 @@ namespace fatortak.Dtos.Accounting
         public int Level { get; set; }
         public bool IsActive { get; set; }
         public bool IsPostable { get; set; }
+        public bool IsSystem { get; set; }
         public string? Description { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }

@@ -564,6 +564,7 @@ namespace fatortak.Services.InvoiceService
                 var invoices = await filteredQuery
                     .Include(i => i.Customer)
                      .Include(i => i.Installments)
+                    .Include(i => i.Project)
                     .Include(i => i.InvoiceItems)
                     .ThenInclude(ii => ii.Item)
                     .OrderByDescending(i => i.CreatedAt)
@@ -646,6 +647,7 @@ namespace fatortak.Services.InvoiceService
                 var invoice = await _context.Invoices
                     .Include(i => i.InvoiceItems)
                     .Include(i => i.Installments) // Include installments
+                    .Include(i => i.Project)
                     .FirstOrDefaultAsync(i => i.Id == invoiceId && i.TenantId == TenantId);
 
                 if (invoice == null)
@@ -1261,6 +1263,7 @@ namespace fatortak.Services.InvoiceService
             return await _context.Invoices
                 .Include(i => i.Customer)
                 .Include(i => i.Installments)
+                .Include(i => i.Project)
                 .Include(i => i.InvoiceItems)
                 .ThenInclude(ii => ii.Item)
                 .FirstOrDefaultAsync(i => i.Id == invoiceId && i.TenantId == TenantId);

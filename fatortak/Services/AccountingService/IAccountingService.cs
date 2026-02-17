@@ -1,5 +1,6 @@
 using fatortak.Dtos.Accounting;
 using fatortak.Dtos.Shared;
+using fatortak.Common.Enum;
 
 namespace fatortak.Services.AccountingService
 {
@@ -15,6 +16,7 @@ namespace fatortak.Services.AccountingService
         Task<ServiceResult<AccountDto>> UpdateAccountAsync(Guid accountId, AccountUpdateDto dto);
         Task<ServiceResult<bool>> DeleteAccountAsync(Guid accountId);
         Task<ServiceResult<List<AccountDto>>> GetAccountHierarchyAsync();
+        Task<ServiceResult<AccountDto>> GetOrCreateAccountForEntityAsync(string entityName, AccountType accountType, Guid? parentAccountId, string? accountCode = null);
 
         // Journal Entry management
         Task<ServiceResult<JournalEntryDto>> CreateManualJournalEntryAsync(JournalEntryCreateDto dto);

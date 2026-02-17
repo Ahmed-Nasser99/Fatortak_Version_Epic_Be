@@ -110,6 +110,12 @@ namespace fatortak.Entities
         public Guid? UpdatedBy { get; set; }
 
         /// <summary>
+        /// Indicates if this is a system-defined account that cannot be deleted.
+        /// </summary>
+        [Required]
+        public bool IsSystem { get; set; } = false;
+
+        /// <summary>
         /// Navigation property to tenant
         /// </summary>
         public Tenant Tenant { get; set; }

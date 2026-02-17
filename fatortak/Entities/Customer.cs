@@ -22,5 +22,7 @@
         public ICollection<Invoice> Invoices { get; set; }
         public DateTime? LastEngagementDate { get; set; }
 
+        public Guid? AccountId { get; set; }
+        public Account? Account { get; set; }
     }
 }

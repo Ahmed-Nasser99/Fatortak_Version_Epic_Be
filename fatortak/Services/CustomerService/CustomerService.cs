@@ -12,15 +12,18 @@ namespace fatortak.Services.CustomerService
         private readonly ApplicationDbContext _context;
         private readonly ILogger<CustomerService> _logger;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly Services.AccountingService.IAccountingService _accountingService;
 
         public CustomerService(
             ApplicationDbContext context,
             ILogger<CustomerService> logger,
-            IHttpContextAccessor httpContextAccessor)
+            IHttpContextAccessor httpContextAccessor,
+            Services.AccountingService.IAccountingService accountingService)
         {
             _context = context;
             _logger = logger;
             _httpContextAccessor = httpContextAccessor;
+            _accountingService = accountingService;
         }
 
         private Guid TenantId =>
@@ -55,6 +58,29 @@ namespace fatortak.Services.CustomerService
 
                 await _context.Customers.AddAsync(customer);
                 await _context.SaveChangesAsync();
+
+                // Create automatic account
+                try
+                {
+                    string parentCode = dto.IsSupplier ? "2100" : "1200"; // Accounts Payable or Accounts Receivable
+                    var parentAccount = await _context.Accounts
+                        .FirstOrDefaultAsync(a => a.TenantId == TenantId && a.AccountCode == parentCode);
+
+                    if (parentAccount != null)
+                    {
+                        var accountType = dto.IsSupplier ? Common.Enum.AccountType.Liability : Common.Enum.AccountType.Asset;
+                        var accountResult = await _accountingService.GetOrCreateAccountForEntityAsync(customer.Name, accountType, parentAccount.Id);
+                        if (accountResult.Success)
+                        {
+                            customer.AccountId = accountResult.Data.Id;
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to create automatic account for customer {CustomerId}", customer.Id);
+                }
 
                 return ServiceResult<CustomerDto>.SuccessResult(MapToDto(customer));
             }

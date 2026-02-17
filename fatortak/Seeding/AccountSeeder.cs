@@ -54,6 +54,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Cash on hand",
                 CreatedAt = DateTime.UtcNow
             });
@@ -68,6 +69,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Bank accounts",
                 CreatedAt = DateTime.UtcNow
             });
@@ -82,6 +84,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Amounts owed by customers",
                 CreatedAt = DateTime.UtcNow
             });
@@ -96,6 +99,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "VAT paid on purchases (recoverable)",
                 CreatedAt = DateTime.UtcNow
             });
@@ -110,6 +114,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Inventory/Stock",
                 CreatedAt = DateTime.UtcNow
             });
@@ -124,6 +129,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = false, // Parent account for employee custody accounts
+                IsSystem = true,
                 Description = "Employee advances and custody accounts (parent account)",
                 CreatedAt = DateTime.UtcNow
             });
@@ -139,6 +145,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Amounts owed to suppliers",
                 CreatedAt = DateTime.UtcNow
             });
@@ -153,6 +160,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "VAT collected on sales (payable to tax authority)",
                 CreatedAt = DateTime.UtcNow
             });
@@ -167,6 +175,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Accrued expenses",
                 CreatedAt = DateTime.UtcNow
             });
@@ -182,6 +191,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Owner's capital",
                 CreatedAt = DateTime.UtcNow
             });
@@ -196,6 +206,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Accumulated profits",
                 CreatedAt = DateTime.UtcNow
             });
@@ -211,6 +222,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Revenue from sales",
                 CreatedAt = DateTime.UtcNow
             });
@@ -225,6 +237,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Revenue from services",
                 CreatedAt = DateTime.UtcNow
             });
@@ -240,6 +253,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "General operating expenses",
                 CreatedAt = DateTime.UtcNow
             });
@@ -254,6 +268,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Office supplies and expenses",
                 CreatedAt = DateTime.UtcNow
             });
@@ -268,6 +283,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Transportation and travel expenses",
                 CreatedAt = DateTime.UtcNow
             });
@@ -282,6 +298,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Cost of raw materials",
                 CreatedAt = DateTime.UtcNow
             });
@@ -296,6 +313,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Utilities expenses (electricity, water, etc.)",
                 CreatedAt = DateTime.UtcNow
             });
@@ -310,6 +328,7 @@ namespace fatortak.Seeding
                 Level = 0,
                 IsActive = true,
                 IsPostable = true,
+                IsSystem = true,
                 Description = "Rent expenses",
                 CreatedAt = DateTime.UtcNow
             });
