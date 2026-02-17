@@ -241,22 +241,7 @@ namespace fatortak.Services.InvoiceService
                         invoice.AmountPaid = invoice.Total;
                         invoice.PaidAt = DateTime.UtcNow;
 
-                        var transactionType = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "PaymentReceived" : "PaymentMade";
-                        var direction = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Credit" : "Debit";
-                        var desc = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Payment received" : "Payment made";
-
-                        await _transactionService.AddTransactionAsync(new Transaction
-                        {
-                            TransactionDate = DateTime.UtcNow,
-                            Type = transactionType,
-                            Amount = invoice.Total,
-                            Direction = direction,
-                            ReferenceId = invoice.Id.ToString(),
-                            ReferenceType = "Invoice",
-                            Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
-                            PaymentMethod = "Cash",
-                            ProjectId = invoice.ProjectId
-                        });
+                        await RegisterPaymentAsync(invoice, invoice.Total);
                     }
                     else if (dto.NumberOfInstallments > 0)
                     {
@@ -390,23 +375,7 @@ namespace fatortak.Services.InvoiceService
 
                     if (paymentAmount > 0)
                     {
-                        var transactionType = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "PaymentReceived" : "PaymentMade";
-                        var direction = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Credit" : "Debit";
-                        var desc = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Payment received" : "Payment made";
-
-                        await _transactionService.AddTransactionAsync(new Transaction
-                        {
-                            TransactionDate = DateTime.UtcNow,
-                            Type = transactionType,
-                            Amount = paymentAmount,
-                            Direction = direction,
-                            ReferenceId = invoice.Id.ToString(),
-                            ReferenceType = "Invoice",
-                            Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
-                            PaymentMethod = "Cash",
-                            BranchId = invoice.BranchId,
-                            ProjectId = invoice.ProjectId
-                        });
+                        await RegisterPaymentAsync(invoice, paymentAmount);
                     }
 
                     if (dto.NumberOfInstallments > 0)
@@ -830,25 +799,14 @@ namespace fatortak.Services.InvoiceService
                 // Handle paid invoice status
                 if (dto.Status == InvoiceStatus.Paid.ToString())
                 {
+                    decimal amountToPay = invoice.Total - (invoice.AmountPaid ?? 0);
                     invoice.AmountPaid = invoice.Total;
                     invoice.Status = InvoiceStatus.Paid.ToString();
 
-                    var transactionType = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "PaymentReceived" : "PaymentMade";
-                    var direction = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Credit" : "Debit";
-                    var desc = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Payment received" : "Payment made";
-
-                    await _transactionService.AddTransactionAsync(new Transaction
+                    if (amountToPay > 0)
                     {
-                        TransactionDate = DateTime.UtcNow,
-                        Type = transactionType,
-                        Amount = invoice.Total,
-                        Direction = direction,
-                        ReferenceId = invoice.Id.ToString(),
-                        ReferenceType = "Invoice",
-                        Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
-                        PaymentMethod = "Cash",
-                        BranchId = invoice.BranchId
-                    });
+                        await RegisterPaymentAsync(invoice, amountToPay);
+                    }
                 }
 
                 // Step 6: Update the invoice
@@ -899,21 +857,7 @@ namespace fatortak.Services.InvoiceService
                     invoice.AmountPaid = invoice.Total;
                     invoice.Status = InvoiceStatus.Paid.ToString();
 
-                    var transactionType = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "PaymentReceived" : "PaymentMade";
-                        var direction = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Credit" : "Debit";
-                        var desc = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Payment received" : "Payment made";
-
-                        await _transactionService.AddTransactionAsync(new Transaction
-                        {
-                            TransactionDate = DateTime.UtcNow,
-                            Type = transactionType,
-                            Amount = invoice.Total,
-                            Direction = direction,
-                            ReferenceId = invoice.Id.ToString(),
-                            ReferenceType = "Invoice",
-                            Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
-                            PaymentMethod = "Cash"
-                        });
+                    await RegisterPaymentAsync(invoice, invoice.Total);
                 }
                 else
                 {
@@ -1021,6 +965,8 @@ namespace fatortak.Services.InvoiceService
                 {
                     invoice.AmountPaid = invoice.Total;
                     invoice.Status = InvoiceStatus.Paid.ToString();
+
+                    await RegisterPaymentAsync(invoice, invoice.Total);
                 }
                 else
                 {
@@ -1079,109 +1025,33 @@ namespace fatortak.Services.InvoiceService
                 invoice.Status = status;
                 invoice.UpdatedAt = DateTime.UtcNow;
 
-                // Automatically post invoice to accounting when status changes to Pending or Paid
-                if ((status == InvoiceStatus.Pending.ToString() || status == InvoiceStatus.Paid.ToString()) 
-                    && oldStatus != InvoiceStatus.Pending.ToString() && oldStatus != InvoiceStatus.Paid.ToString())
-                {
-                    try
-                    {
-                        var isPosted = await _accountingPostingService.IsInvoicePostedAsync(invoiceId);
-                        if (!isPosted)
-                        {
-                            var posted = await _accountingPostingService.PostInvoiceAsync(invoiceId);
-                            if (!posted)
-                            {
-                                _logger.LogWarning("Failed to automatically post invoice {InvoiceId} to accounting. Continuing with status update.", invoiceId);
-                            }
-                            else
-                            {
-                                _logger.LogInformation("Successfully auto-posted invoice {InvoiceId} to accounting", invoiceId);
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error auto-posting invoice {InvoiceId} to accounting. Continuing with status update.", invoiceId);
-                        // Don't fail the status update if posting fails - log and continue
-                    }
-                }
 
                 // Handle Paid status
                 if (status == InvoiceStatus.Paid.ToString())
                 {
                     invoice.Customer.LastEngagementDate = DateTime.UtcNow;
                     invoice.PaidAt = DateTime.UtcNow;
+                    
+                    // Determine the amount to register (if any)
+                    decimal amountToPay = invoice.Total - (invoice.AmountPaid ?? 0);
+                    
                     // Ensure AmountPaid is set to Total when marked as Paid
                     if (invoice.AmountPaid < invoice.Total)
                     {
                         invoice.AmountPaid = invoice.Total;
                     }
 
-                    // Create Transaction if it doesn't exist (or just create it as this is a status change)
-                    // We only create if transitioning to Paid.
-                    if (oldStatus != InvoiceStatus.Paid.ToString())
+                    // Register the payment (Transaction + Accounting Entry)
+                    // We only trigger this if transitioning to Paid and there's a balance to pay
+                    if (oldStatus != InvoiceStatus.Paid.ToString() && amountToPay > 0)
                     {
-                        var transactionType = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "PaymentReceived" : "PaymentMade";
-                        var direction = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Credit" : "Debit";
-                        var desc = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Payment received" : "Payment made";
-
-                        // Get current user ID
-                        var userIdString = _httpContextAccessor.HttpContext?.User?.FindFirst("uid")?.Value;
-                        var userId = !string.IsNullOrEmpty(userIdString) ? Guid.Parse(userIdString) : (Guid?)null;
-
-                        await _transactionService.AddTransactionAsync(new Transaction
-                        {
-                            TenantId = invoice.TenantId,
-                            TransactionDate = DateTime.UtcNow,
-                            Type = transactionType,
-                            Amount = invoice.Total,
-                            Direction = direction,
-                            ReferenceId = invoice.Id.ToString(),
-                            ReferenceType = "Invoice",
-                            Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
-                            PaymentMethod = "Cash",
-                            CreatedBy = userId,
-                            BranchId = invoice.BranchId
-                        });
-
-                        // Auto-post payment to accounting
-                        try
-                        {
-                            var paymentPosted = await _accountingPostingService.PostPaymentAsync(
-                                invoice.Id, 
-                                invoice.Total);
-                            if (paymentPosted)
-                            {
-                                _logger.LogInformation("Successfully auto-posted payment for invoice {InvoiceId} to accounting", invoiceId);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error auto-posting payment for invoice {InvoiceId} to accounting", invoiceId);
-                            // Don't fail - log and continue
-                        }
+                        await RegisterPaymentAsync(invoice, amountToPay);
                     }
 
                     // If coming from Cancelled or Draft, process inventory
                     if (oldStatus == InvoiceStatus.Cancelled.ToString() || oldStatus == InvoiceStatus.Draft.ToString())
                     {
-                        if (invoice.InvoiceItems != null)
-                        {
-                            foreach (var invoiceItem in invoice.InvoiceItems)
-                            {
-                                if (invoiceItem.Item != null)
-                                {
-                                    if (invoice.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower())
-                                    {
-                                        invoiceItem.Item.Quantity -= invoiceItem.Quantity;
-                                    }
-                                    else
-                                    {
-                                        invoiceItem.Item.Quantity += invoiceItem.Quantity;
-                                    }
-                                }
-                            }
-                        }
+                        await UpdateInventoryForInvoiceAsync(invoice, invoice.InvoiceType);
                     }
                 }
                 // Handle Cancelled status
@@ -1190,33 +1060,24 @@ namespace fatortak.Services.InvoiceService
                     // Only adjust inventory if coming from live states (not Draft or already Cancelled)
                     var liveStates = new[]
                     {
-                InvoiceStatus.Pending.ToString(),
-                InvoiceStatus.PartialPaid.ToString(),
-                InvoiceStatus.Paid.ToString(),
-                InvoiceStatus.Overdue.ToString()
-            };
+                        InvoiceStatus.Pending.ToString(),
+                        InvoiceStatus.PartialPaid.ToString(),
+                        InvoiceStatus.Paid.ToString(),
+                        InvoiceStatus.Overdue.ToString()
+                    };
 
                     if (liveStates.Contains(oldStatus))
                     {
-                        if (invoice.InvoiceItems != null)
+                         // Reverse the inventory changes - opposite of original operation
+                        if (invoice.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower())
                         {
-                            foreach (var invoiceItem in invoice.InvoiceItems)
-                            {
-                                if (invoiceItem.Item != null)
-                                {
-                                    // Reverse the inventory changes - opposite of original operation
-                                    if (invoice.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower())
-                                    {
-                                        // For sell invoices, add back the quantity when cancelled
-                                        invoiceItem.Item.Quantity += invoiceItem.Quantity;
-                                    }
-                                    else
-                                    {
-                                        // For purchase invoices, subtract the quantity when cancelled
-                                        invoiceItem.Item.Quantity -= invoiceItem.Quantity;
-                                    }
-                                }
-                            }
+                            // For sell invoices, add back the quantity when cancelled
+                            foreach(var item in invoice.InvoiceItems) if(item.Item != null) item.Item.Quantity += item.Quantity;
+                        }
+                        else
+                        {
+                            // For purchase invoices, subtract the quantity when cancelled
+                            foreach(var item in invoice.InvoiceItems) if(item.Item != null) item.Item.Quantity -= item.Quantity;
                         }
                     }
                 }
@@ -1228,23 +1089,7 @@ namespace fatortak.Services.InvoiceService
                     // If coming from Cancelled, process inventory like a new invoice
                     if (oldStatus == InvoiceStatus.Cancelled.ToString())
                     {
-                        if (invoice.InvoiceItems != null)
-                        {
-                            foreach (var invoiceItem in invoice.InvoiceItems)
-                            {
-                                if (invoiceItem.Item != null)
-                                {
-                                    if (invoice.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower())
-                                    {
-                                        invoiceItem.Item.Quantity -= invoiceItem.Quantity;
-                                    }
-                                    else
-                                    {
-                                        invoiceItem.Item.Quantity += invoiceItem.Quantity;
-                                    }
-                                }
-                            }
-                        }
+                        await UpdateInventoryForInvoiceAsync(invoice, invoice.InvoiceType);
                     }
                 }
                 // Handle Draft status (reverting to draft)
@@ -1253,32 +1098,23 @@ namespace fatortak.Services.InvoiceService
                     // If reverting from live state to draft, reverse inventory changes
                     var liveStates = new[]
                     {
-                InvoiceStatus.Pending.ToString(),
-                InvoiceStatus.PartialPaid.ToString(),
-                InvoiceStatus.Paid.ToString(),
-                InvoiceStatus.Overdue.ToString(),
-                InvoiceStatus.Cancelled.ToString()
-            };
+                        InvoiceStatus.Pending.ToString(),
+                        InvoiceStatus.PartialPaid.ToString(),
+                        InvoiceStatus.Paid.ToString(),
+                        InvoiceStatus.Overdue.ToString(),
+                        InvoiceStatus.Cancelled.ToString()
+                    };
 
                     if (liveStates.Contains(oldStatus))
                     {
-                        if (invoice.InvoiceItems != null)
+                        // Reverse inventory changes - same logic as cancellation
+                        if (invoice.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower())
                         {
-                            foreach (var invoiceItem in invoice.InvoiceItems)
-                            {
-                                if (invoiceItem.Item != null)
-                                {
-                                    // Reverse inventory changes - same logic as cancellation
-                                    if (invoice.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower())
-                                    {
-                                        invoiceItem.Item.Quantity += invoiceItem.Quantity;
-                                    }
-                                    else
-                                    {
-                                        invoiceItem.Item.Quantity -= invoiceItem.Quantity;
-                                    }
-                                }
-                            }
+                            foreach(var item in invoice.InvoiceItems) if(item.Item != null) item.Item.Quantity += item.Quantity;
+                        }
+                        else
+                        {
+                            foreach(var item in invoice.InvoiceItems) if(item.Item != null) item.Item.Quantity -= item.Quantity;
                         }
                     }
                 }
@@ -1299,11 +1135,8 @@ namespace fatortak.Services.InvoiceService
 
             if (installment == null) return ServiceResult<bool>.Failure("Installment not found");
 
-
-
             installment.Status = InstallmentStatus.Unpaid.ToString();
             installment.PaidAt = null;
-
 
             installment.Invoice.AmountPaid -= installment.Amount;
 
@@ -1329,11 +1162,8 @@ namespace fatortak.Services.InvoiceService
 
             if (installment == null) return ServiceResult<bool>.Failure("Installment not found");
 
-
-
             installment.Status = InstallmentStatus.Paid.ToString();
             installment.PaidAt = DateTime.UtcNow;
-
 
             installment.Invoice.AmountPaid += installment.Amount;
 
@@ -1347,6 +1177,9 @@ namespace fatortak.Services.InvoiceService
             {
                 installment.Invoice.Status = InvoiceStatus.PartialPaid.ToString();
             }
+
+            // Register the payment
+            await RegisterPaymentAsync(installment.Invoice, installment.Amount);
 
             await _context.SaveChangesAsync();
             return ServiceResult<bool>.SuccessResult(true);
@@ -1510,7 +1343,9 @@ namespace fatortak.Services.InvoiceService
                 Items = invoice.InvoiceItems.Select(MapToDto).ToList(),
                 Installments = invoice?.Installments?.OrderBy(i => i.DueDate)?.Select(MapToDto).ToList(),
                 ProjectId = invoice.ProjectId,
-                ProjectName = invoice.Project?.Name
+                ProjectName = invoice.Project?.Name,
+                CreatedAt = invoice.CreatedAt,
+                PaidAt = invoice.PaidAt
             };
         }
 
@@ -1563,6 +1398,55 @@ namespace fatortak.Services.InvoiceService
             CreatedAt = company.CreatedAt,
             UpdatedAt = company.UpdatedAt
         };
+
+        private async Task RegisterPaymentAsync(Invoice invoice, decimal amount, string? paymentMethod = "Cash")
+        {
+            if (amount <= 0) return;
+
+            var transactionType = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "PaymentReceived" : "PaymentMade";
+            var direction = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Credit" : "Debit";
+            var desc = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Payment received" : "Payment made";
+
+            // Get current user ID
+            var userIdString = _httpContextAccessor.HttpContext?.User?.FindFirst("UserId")?.Value;
+            var userId = !string.IsNullOrEmpty(userIdString) ? Guid.Parse(userIdString) : (Guid?)null;
+
+            var transactionResult = await _transactionService.AddTransactionAsync(new Transaction
+            {
+                TenantId = invoice.TenantId,
+                TransactionDate = DateTime.UtcNow,
+                Type = transactionType,
+                Amount = amount,
+                Direction = direction,
+                ReferenceId = invoice.Id.ToString(),
+                ReferenceType = "Invoice",
+                Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
+                PaymentMethod = paymentMethod ?? "Cash",
+                CreatedBy = userId,
+                BranchId = invoice.BranchId,
+                ProjectId = invoice.ProjectId
+            });
+
+            if (transactionResult.Success)
+            {
+                try
+                {
+                    var paymentPosted = await _accountingPostingService.PostPaymentAsync(
+                        invoice.Id,
+                        amount,
+                        transactionResult.Data.Id); // Pass the Transaction ID as the unique reference
+
+                    if (paymentPosted)
+                    {
+                        _logger.LogInformation("Successfully auto-posted payment for invoice {InvoiceId} to accounting (Amount: {Amount})", invoice.Id, amount);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error auto-posting payment for invoice {InvoiceId} to accounting", invoice.Id);
+                }
+            }
+        }
 
         private string GenerateImageWithFolderName(string? imageName)
         {

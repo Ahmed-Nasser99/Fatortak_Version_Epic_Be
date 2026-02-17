@@ -42,7 +42,9 @@ namespace fatortak.Services.AccountingPostingService
 
         public async Task<bool> PostInvoiceAsync(Guid invoiceId)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var existingTransaction = _context.Database.CurrentTransaction;
+            var transaction = existingTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
+
             try
             {
                 // Check if already posted
@@ -219,22 +221,28 @@ namespace fatortak.Services.AccountingPostingService
                 }
 
                 await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                if (transaction != null) await transaction.CommitAsync();
 
                 _logger.LogInformation("Successfully posted invoice {InvoiceId} as journal entry {EntryNumber}", invoiceId, entryNumber);
                 return true;
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                if (transaction != null) await transaction.RollbackAsync();
                 _logger.LogError(ex, "Error posting invoice {InvoiceId}", invoiceId);
                 return false;
+            }
+            finally
+            {
+                if (transaction != null) await transaction.DisposeAsync();
             }
         }
 
         public async Task<bool> PostExpenseAsync(int expenseId)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var existingTransaction = _context.Database.CurrentTransaction;
+            var transaction = existingTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
+
             try
             {
                 // Check if already posted
@@ -331,34 +339,41 @@ namespace fatortak.Services.AccountingPostingService
                 });
 
                 await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                if (transaction != null) await transaction.CommitAsync();
 
                 _logger.LogInformation("Successfully posted expense {ExpenseId} as journal entry {EntryNumber}", expenseId, entryNumber);
                 return true;
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                if (transaction != null) await transaction.RollbackAsync();
                 _logger.LogError(ex, "Error posting expense {ExpenseId}", expenseId);
                 return false;
             }
+            finally
+            {
+                if (transaction != null) await transaction.DisposeAsync();
+            }
         }
 
-        public async Task<bool> PostPaymentAsync(Guid invoiceId, decimal amount)
+        public async Task<bool> PostPaymentAsync(Guid invoiceId, decimal amount, Guid? transactionId = null)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var existingTransaction = _context.Database.CurrentTransaction;
+            var transaction = existingTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
+            
             try
             {
                 // Check if already posted
+                var referenceId = transactionId ?? invoiceId;
                 var existingEntry = await _context.JournalEntries
                     .FirstOrDefaultAsync(je => je.TenantId == TenantId &&
                                                je.ReferenceType == JournalEntryReferenceType.Payment &&
-                                               je.ReferenceId == invoiceId &&
+                                               je.ReferenceId == referenceId &&
                                                je.IsPosted);
 
                 if (existingEntry != null)
                 {
-                    _logger.LogWarning("Payment for invoice {InvoiceId} has already been posted", invoiceId);
+                    _logger.LogWarning("Payment (Ref: {ReferenceId}) for invoice {InvoiceId} has already been posted", referenceId, invoiceId);
                     return false;
                 }
 
@@ -397,7 +412,7 @@ namespace fatortak.Services.AccountingPostingService
                     EntryNumber = entryNumber,
                     Date = DateTime.UtcNow.Date,
                     ReferenceType = JournalEntryReferenceType.Payment,
-                    ReferenceId = invoiceId,
+                    ReferenceId = referenceId,
                     Description = $"Payment for Invoice {invoice.InvoiceNumber} - {invoice.Customer?.Name ?? "Customer"}",
                     IsPosted = true,
                     PostedAt = DateTime.UtcNow,
@@ -431,16 +446,20 @@ namespace fatortak.Services.AccountingPostingService
                 });
 
                 await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                if (transaction != null) await transaction.CommitAsync();
 
                 _logger.LogInformation("Successfully posted payment for invoice {InvoiceId} as journal entry {EntryNumber}", invoiceId, entryNumber);
                 return true;
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                if (transaction != null) await transaction.RollbackAsync();
                 _logger.LogError(ex, "Error posting payment for invoice {InvoiceId}", invoiceId);
                 return false;
+            }
+            finally
+            {
+                if (transaction != null) await transaction.DisposeAsync();
             }
         }
 

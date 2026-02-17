@@ -22,7 +22,7 @@ namespace fatortak.Services.AccountingPostingService
         /// Posts a customer payment to accounting journal entries.
         /// Dr Cash/Bank Account, Cr Accounts Receivable
         /// </summary>
-        Task<bool> PostPaymentAsync(Guid invoiceId, decimal amount);
+        Task<bool> PostPaymentAsync(Guid invoiceId, decimal amount, Guid? transactionId = null);
 
         /// <summary>
         /// Checks if an invoice has already been posted
