@@ -8,6 +8,7 @@ using fatortak.Helpers;
 using Microsoft.EntityFrameworkCore;
 using fatortak.Services.TransactionService;
 using fatortak.Services.AccountingPostingService;
+using fatortak.Services.AccountingService;
 
 namespace fatortak.Services.InvoiceService
 {
@@ -18,19 +19,22 @@ namespace fatortak.Services.InvoiceService
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ITransactionService _transactionService;
         private readonly IAccountingPostingService _accountingPostingService;
+        private readonly IAccountingService _accountingService;
 
         public InvoiceService(
             ApplicationDbContext context,
             ILogger<InvoiceService> logger,
             IHttpContextAccessor httpContextAccessor,
             ITransactionService transactionService,
-            IAccountingPostingService accountingPostingService)
+            IAccountingPostingService accountingPostingService,
+            IAccountingService accountingService)
         {
             _context = context;
             _logger = logger;
             _httpContextAccessor = httpContextAccessor;
             _transactionService = transactionService;
             _accountingPostingService = accountingPostingService;
+            _accountingService = accountingService;
         }
 
         private Guid TenantId => GetCurrentTenantId();
@@ -653,6 +657,10 @@ namespace fatortak.Services.InvoiceService
                 if (invoice == null)
                     return ServiceResult<InvoiceDto>.Failure("Invoice not found");
 
+                // Prevent changes to cancelled invoices
+                if (invoice.Status == InvoiceStatus.Cancelled.ToString())
+                    return ServiceResult<InvoiceDto>.Failure("Cannot update a cancelled invoice.");
+
                 // Validate customer if changed
                 if (dto.CustomerId.HasValue && dto.CustomerId.Value != invoice.CustomerId)
                 {
@@ -988,6 +996,10 @@ namespace fatortak.Services.InvoiceService
                 if (invoice == null)
                     return ServiceResult<bool>.Failure("Invoice not found");
 
+                // Prevent deletion of cancelled invoices
+                if (invoice.Status == InvoiceStatus.Cancelled.ToString())
+                    return ServiceResult<bool>.Failure("Cannot delete a cancelled invoice.");
+
                 // Soft delete (or hard delete if preferred)
                 _context.Invoices.Remove(invoice);
                 await _context.SaveChangesAsync();
@@ -1080,6 +1092,39 @@ namespace fatortak.Services.InvoiceService
                         {
                             // For purchase invoices, subtract the quantity when cancelled
                             foreach(var item in invoice.InvoiceItems) if(item.Item != null) item.Item.Quantity -= item.Quantity;
+                        }
+
+                        // Handle Financial Reversal (Accounting)
+                        try
+                        {
+                            // Check if invoice was posted
+                            if (await _accountingPostingService.IsInvoicePostedAsync(invoiceId))
+                            {
+                                // Find the journal entry associated with this invoice
+                                var journalEntry = await _context.JournalEntries
+                                    .FirstOrDefaultAsync(je => je.ReferenceId == invoiceId && 
+                                                             je.ReferenceType == JournalEntryReferenceType.Invoice &&
+                                                             je.TenantId == TenantId);
+
+                                if (journalEntry != null)
+                                {
+                                    // Reverse the journal entry
+                                    var reversalResult = await _accountingService.ReverseJournalEntryAsync(journalEntry.Id);
+                                    if (reversalResult.Success)
+                                    {
+                                        _logger.LogInformation("Successfully reversed journal entry {JournalEntryId} for cancelled invoice {InvoiceId}", journalEntry.Id, invoiceId);
+                                    }
+                                    else
+                                    {
+                                        _logger.LogWarning("Failed to reverse journal entry {JournalEntryId} for cancelled invoice {InvoiceId}: {ErrorMessage}", journalEntry.Id, invoiceId, reversalResult.ErrorMessage);
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error occurred during financial reversal for cancelled invoice {InvoiceId}", invoiceId);
+                            // We continue with cancellation even if accounting reversal fails, but log the error
                         }
                     }
                 }

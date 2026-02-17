@@ -4,7 +4,6 @@ using fatortak.Dtos.Accounting;
 using fatortak.Dtos.Shared;
 using fatortak.Entities;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
 
 namespace fatortak.Services.AccountingService
 {
@@ -129,7 +128,10 @@ namespace fatortak.Services.AccountingService
                     return ServiceResult<AccountDto>.Failure("Account not found");
                 }
 
-                return ServiceResult<AccountDto>.SuccessResult(MapToDto(account));
+                var balanceResult = await GetAccountBalanceAsync(accountId);
+                var balance = balanceResult.Success ? balanceResult.Data.Balance : 0;
+
+                return ServiceResult<AccountDto>.SuccessResult(MapToDto(account, balance));
             }
             catch (Exception ex)
             {
@@ -194,7 +196,26 @@ namespace fatortak.Services.AccountingService
                     .Take(pagination.PageSize)
                     .ToListAsync();
 
-                var accountDtos = accounts.Select(MapToDto).ToList();
+                // Fetch balances in bulk
+                var accountIds = accounts.Select(a => a.Id).ToList();
+                var balances = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Where(jel => accountIds.Contains(jel.AccountId) && jel.JournalEntry.TenantId == TenantId && jel.JournalEntry.IsPosted)
+                    .GroupBy(jel => jel.AccountId)
+                    .Select(g => new
+                    {
+                        AccountId = g.Key,
+                        Debit = g.Sum(jel => jel.Debit),
+                        Credit = g.Sum(jel => jel.Credit)
+                    })
+                    .ToDictionaryAsync(x => x.AccountId, x => new { x.Debit, x.Credit });
+
+                var accountDtos = accounts.Select(a =>
+                {
+                    var bal = balances.ContainsKey(a.Id) ? balances[a.Id] : new { Debit = 0m, Credit = 0m };
+                    var balance = CalculateBalance(a.AccountType, bal.Debit, bal.Credit);
+                    return MapToDto(a, balance);
+                }).ToList();
 
                 return ServiceResult<PagedResponseDto<AccountDto>>.SuccessResult(new PagedResponseDto<AccountDto>
                 {
@@ -313,16 +334,39 @@ namespace fatortak.Services.AccountingService
         {
             try
             {
-                var accounts = await _context.Accounts
-                    .Include(a => a.ParentAccount)
+                var allAccounts = await _context.Accounts
                     .Where(a => a.TenantId == TenantId && a.IsActive)
                     .OrderBy(a => a.AccountCode)
                     .ToListAsync();
 
-                var rootAccounts = accounts.Where(a => a.ParentAccountId == null).ToList();
-                var accountDtos = rootAccounts.Select(a => MapToDtoWithChildren(a, accounts)).ToList();
+                // Fetch all balances for hierarchy
+                var balances = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Where(jel => jel.JournalEntry.TenantId == TenantId && jel.JournalEntry.IsPosted)
+                    .GroupBy(jel => jel.AccountId)
+                    .Select(g => new
+                    {
+                        AccountId = g.Key,
+                        Debit = g.Sum(jel => jel.Debit),
+                        Credit = g.Sum(jel => jel.Credit)
+                    })
+                    .ToListAsync();
 
-                return ServiceResult<List<AccountDto>>.SuccessResult(accountDtos);
+                var accountBalances = new Dictionary<Guid, decimal>();
+                foreach (var account in allAccounts)
+                {
+                    var bal = balances.FirstOrDefault(b => b.AccountId == account.Id);
+                    var balance = bal != null ? CalculateBalance(account.AccountType, bal.Debit, bal.Credit) : 0m;
+                    accountBalances[account.Id] = balance;
+                }
+
+                var rootAccounts = allAccounts
+                    .Where(a => a.ParentAccountId == null)
+                    .Select(a => MapToDtoWithChildren(a, allAccounts, accountBalances))
+                    .OrderBy(a => a.AccountCode)
+                    .ToList();
+
+                return ServiceResult<List<AccountDto>>.SuccessResult(rootAccounts);
             }
             catch (Exception ex)
             {
@@ -528,6 +572,7 @@ namespace fatortak.Services.AccountingService
                 var journalEntry = await _context.JournalEntries
                     .Include(je => je.Lines)
                         .ThenInclude(jel => jel.Account)
+                    .Include(je => je.Project)
                     .FirstOrDefaultAsync(je => je.Id == journalEntryId && je.TenantId == TenantId);
 
                 if (journalEntry == null)
@@ -551,6 +596,7 @@ namespace fatortak.Services.AccountingService
                 var query = _context.JournalEntries
                     .Include(je => je.Lines)
                         .ThenInclude(jel => jel.Account)
+                    .Include(je => je.Project)
                     .Where(je => je.TenantId == TenantId)
                     .AsQueryable();
 
@@ -1109,7 +1155,7 @@ namespace fatortak.Services.AccountingService
             return $"JE-{nextNumber:D4}";
         }
 
-        private AccountDto MapToDto(Account account)
+        private AccountDto MapToDto(Account account, decimal balance = 0)
         {
             return new AccountDto
             {
@@ -1128,17 +1174,25 @@ namespace fatortak.Services.AccountingService
                 Description = account.Description,
                 CreatedAt = account.CreatedAt,
                 UpdatedAt = account.UpdatedAt,
-                Balance = 0 // Should be calculated if needed
+                Balance = balance
             };
         }
 
-        private AccountDto MapToDtoWithChildren(Account account, List<Account> allAccounts)
+        private AccountDto MapToDtoWithChildren(Account account, List<Account> allAccounts, Dictionary<Guid, decimal> accountBalances)
         {
-            var dto = MapToDto(account);
+            var balance = accountBalances.ContainsKey(account.Id) ? accountBalances[account.Id] : 0;
+            var dto = MapToDto(account, balance);
             dto.ChildAccounts = allAccounts
                 .Where(a => a.ParentAccountId == account.Id)
-                .Select(a => MapToDtoWithChildren(a, allAccounts))
+                .Select(a => MapToDtoWithChildren(a, allAccounts, accountBalances))
                 .ToList();
+
+            // Roll up child balances to parent if parent is not postable
+            if (!account.IsPostable && dto.ChildAccounts.Any())
+            {
+                dto.Balance = dto.ChildAccounts.Sum(c => c.Balance);
+            }
+
             return dto;
         }
 
@@ -1161,6 +1215,8 @@ namespace fatortak.Services.AccountingService
                 CreatedAt = journalEntry.CreatedAt,
                 UpdatedAt = journalEntry.UpdatedAt,
                 ReversingEntryId = journalEntry.ReversingEntryId,
+                ProjectId = journalEntry.ProjectId,
+                ProjectName = journalEntry.Project?.Name,
                 Lines = journalEntry.Lines.Select(MapToDto).ToList(),
                 TotalDebit = journalEntry.TotalDebit,
                 TotalCredit = journalEntry.TotalCredit

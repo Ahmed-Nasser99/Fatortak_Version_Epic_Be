@@ -22,6 +22,8 @@ namespace fatortak.Dtos.Accounting
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
         public Guid? ReversingEntryId { get; set; }
+        public Guid? ProjectId { get; set; }
+        public string? ProjectName { get; set; }
         public List<JournalEntryLineDto> Lines { get; set; } = new List<JournalEntryLineDto>();
         public decimal TotalDebit { get; set; }
         public decimal TotalCredit { get; set; }

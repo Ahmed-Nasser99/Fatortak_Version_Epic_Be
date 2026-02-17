@@ -122,6 +122,18 @@ namespace fatortak.Services.AuthService
 
                 var tenant = tenantCreationResult.Data;
 
+                // 6. Seed default Chart of Accounts for new tenant
+                try
+                {
+                    await Seeding.AccountSeeder.SeedAccountsForNewTenantAsync(_context, tenant.Id);
+                    _logger.LogInformation("Successfully seeded default accounts for tenant {TenantId} during registration", tenant.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error seeding accounts for tenant {TenantId} during registration. User created but accounts not seeded.", tenant.Id);
+                    // We don't fail the whole registration if seeding fails, similar to TenantService behavior
+                }
+
                 // 7. Create Default Company Profile (if not already created by tenant creation)
                 var company = await _context.Companies.FirstOrDefaultAsync(c => c.TenantId == tenant.Id);
                 if (company == null)

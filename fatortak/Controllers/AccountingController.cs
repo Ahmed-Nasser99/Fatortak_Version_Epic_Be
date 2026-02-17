@@ -145,7 +145,7 @@ namespace fatortak.Controllers
         /// <summary>
         /// Update an account
         /// </summary>
-        [HttpPut("accounts/{accountId}")]
+        [HttpPost("accounts/{accountId}/update")]
         public async Task<ActionResult<ServiceResult<AccountDto>>> UpdateAccount(
             Guid accountId,
             [FromBody] AccountUpdateDto dto)
@@ -183,7 +183,7 @@ namespace fatortak.Controllers
         /// <summary>
         /// Delete an account (only if no journal entries exist)
         /// </summary>
-        [HttpDelete("accounts/{accountId}")]
+        [HttpPost("accounts/{accountId}/delete")]
         public async Task<ActionResult<ServiceResult<bool>>> DeleteAccount(Guid accountId)
         {
             try

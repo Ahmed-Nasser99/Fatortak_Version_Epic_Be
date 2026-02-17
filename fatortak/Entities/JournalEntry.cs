@@ -100,6 +100,17 @@ namespace fatortak.Entities
         public JournalEntry? ReversingEntry { get; set; }
 
         /// <summary>
+        /// Optional project linked to this journal entry
+        /// </summary>
+        public Guid? ProjectId { get; set; }
+
+        /// <summary>
+        /// Navigation property to project
+        /// </summary>
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
+
+        /// <summary>
         /// Navigation property to tenant
         /// </summary>
         public Tenant Tenant { get; set; }

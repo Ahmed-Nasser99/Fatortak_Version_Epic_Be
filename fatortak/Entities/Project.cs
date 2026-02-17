@@ -34,9 +34,6 @@ namespace fatortak.Entities
         public bool IsInternal => CustomerId == null;
 
         public Tenant Tenant { get; set; }
-
-        public Guid? AccountId { get; set; }
-        public Account? Account { get; set; }
         
         // Navigation properties
         public ICollection<Transaction> Transactions { get; set; }

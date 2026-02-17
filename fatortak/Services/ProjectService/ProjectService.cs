@@ -12,14 +12,12 @@ namespace fatortak.Services.ProjectService
         private readonly ApplicationDbContext _context;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ILogger<ProjectService> _logger;
-        private readonly Services.AccountingService.IAccountingService _accountingService;
 
-        public ProjectService(ApplicationDbContext context, IHttpContextAccessor httpContextAccessor, ILogger<ProjectService> logger, Services.AccountingService.IAccountingService accountingService)
+        public ProjectService(ApplicationDbContext context, IHttpContextAccessor httpContextAccessor, ILogger<ProjectService> logger)
         {
             _context = context;
             _httpContextAccessor = httpContextAccessor;
             _logger = logger;
-            _accountingService = accountingService;
         }
 
         private Guid TenantId =>
@@ -45,28 +43,6 @@ namespace fatortak.Services.ProjectService
                 await _context.Projects.AddAsync(project);
                 await _context.SaveChangesAsync();
 
-                // Create automatic account
-                if (dto.CustomerId.HasValue)
-                {
-                    try
-                    {
-                        var customer = await _context.Customers.FindAsync(dto.CustomerId.Value);
-                        if (customer != null && customer.AccountId.HasValue)
-                        {
-                            var accountType = customer.IsSupplier ? Common.Enum.AccountType.Liability : Common.Enum.AccountType.Asset;
-                            var accountResult = await _accountingService.GetOrCreateAccountForEntityAsync(project.Name, accountType, customer.AccountId.Value);
-                            if (accountResult.Success)
-                            {
-                                project.AccountId = accountResult.Data.Id;
-                                await _context.SaveChangesAsync();
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to create automatic account for project {ProjectId}", project.Id);
-                    }
-                }
 
                 // Explicitly load Customer if needed, or just map what we have
                 if (dto.CustomerId.HasValue)

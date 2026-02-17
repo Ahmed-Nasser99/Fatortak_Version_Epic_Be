@@ -121,6 +121,7 @@ namespace fatortak.Services.AccountingPostingService
                     Date = invoice.IssueDate.Date,
                     ReferenceType = JournalEntryReferenceType.Invoice,
                     ReferenceId = invoiceId,
+                    ProjectId = invoice.ProjectId,
                     Description = $"Invoice {invoice.InvoiceNumber} - {invoice.Customer?.Name ?? "Customer"}",
                     IsPosted = true, // Auto-post when created from business transaction
                     PostedAt = DateTime.UtcNow,
@@ -306,6 +307,7 @@ namespace fatortak.Services.AccountingPostingService
                     Date = expense.Date.ToDateTime(TimeOnly.MinValue).Date,
                     ReferenceType = JournalEntryReferenceType.Expense,
                     ReferenceId = null, // Expense uses int ID, store reference in description
+                    ProjectId = expense.ProjectId,
                     Description = $"Expense ID: {expenseId} - {expense.Category ?? "General"} - {expense.Notes}",
                     IsPosted = true,
                     PostedAt = DateTime.UtcNow,
@@ -413,6 +415,7 @@ namespace fatortak.Services.AccountingPostingService
                     Date = DateTime.UtcNow.Date,
                     ReferenceType = JournalEntryReferenceType.Payment,
                     ReferenceId = referenceId,
+                    ProjectId = invoice.ProjectId,
                     Description = $"Payment for Invoice {invoice.InvoiceNumber} - {invoice.Customer?.Name ?? "Customer"}",
                     IsPosted = true,
                     PostedAt = DateTime.UtcNow,
