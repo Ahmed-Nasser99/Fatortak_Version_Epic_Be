@@ -42,6 +42,7 @@ namespace fatortak.Services.ExpenseService
             {
                 var query = _context.Expenses
                     .Include(e => e.Project)
+                    .Include(e => e.Account)
                     .Where(e => e.TenantId == _tenantId)
                     .OrderByDescending(e => e.Date)
                     .AsQueryable();
@@ -108,6 +109,7 @@ namespace fatortak.Services.ExpenseService
             {
                 var expense = await _context.Expenses
                     .Include(e => e.Project)
+                    .Include(e => e.Account)
                     .FirstOrDefaultAsync(e => e.TenantId == _tenantId && e.Id == id);
 
                 if (expense == null)
@@ -155,6 +157,7 @@ namespace fatortak.Services.ExpenseService
                     TenantId = _tenantId,
                     BranchId = expenseDto.BranchId,
                     ProjectId = expenseDto.ProjectId,
+                    AccountId = expenseDto.AccountId,
                     Category = expenseDto.Category,
                     CreatedAt = DateTime.UtcNow
                 };
@@ -288,6 +291,7 @@ namespace fatortak.Services.ExpenseService
                 if (expenseDto.Notes != null) expense.Notes = expenseDto.Notes;
                 if (expenseDto.BranchId.HasValue) expense.BranchId = expenseDto.BranchId.Value;
                 if (expenseDto.ProjectId.HasValue) expense.ProjectId = expenseDto.ProjectId.Value;
+                if (expenseDto.AccountId.HasValue) expense.AccountId = expenseDto.AccountId.Value;
                 if (expenseDto.Category != null) expense.Category = expenseDto.Category;
                 if (expenseDto.Category != null) expense.Category = expenseDto.Category;
 
@@ -374,6 +378,8 @@ namespace fatortak.Services.ExpenseService
                 UpdatedAt = expense.UpdatedAt,
                 ProjectId = expense.ProjectId,
                 ProjectName = expense.Project?.Name,
+                AccountId = expense.AccountId,
+                AccountName = expense.Account?.Name,
                 Category = expense.Category
             };
         }

@@ -263,6 +263,7 @@ namespace fatortak.Services.AccountingPostingService
 
                 // Load expense
                 var expense = await _context.Expenses
+                    .Include(e => e.Account)
                     .FirstOrDefaultAsync(e => e.Id == expenseId && e.TenantId == TenantId);
 
                 if (expense == null)
@@ -277,9 +278,21 @@ namespace fatortak.Services.AccountingPostingService
                 //   Cr Cash/Bank Account
 
                 var expenseAccount = await GetAccountByCodeAsync("5000"); // Default Expense Account
-                // Try to get expense account by category if mapping exists
-                if (!string.IsNullOrWhiteSpace(expense.Category))
+                
+                // If the expense has a specific account selected, use it
+                if (expense.AccountId.HasValue)
                 {
+                    var selectedAccount = await _context.Accounts
+                        .FirstOrDefaultAsync(a => a.Id == expense.AccountId.Value && a.TenantId == TenantId);
+                    
+                    if (selectedAccount != null)
+                    {
+                        expenseAccount = selectedAccount;
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(expense.Category))
+                {
+                    // Try to get expense account by category if mapping exists
                     var categoryAccount = await GetAccountByNameAsync($"Expense - {expense.Category}");
                     if (categoryAccount != null)
                     {
@@ -308,7 +321,7 @@ namespace fatortak.Services.AccountingPostingService
                     ReferenceType = JournalEntryReferenceType.Expense,
                     ReferenceId = null, // Expense uses int ID, store reference in description
                     ProjectId = expense.ProjectId,
-                    Description = $"Expense ID: {expenseId} - {expense.Category ?? "General"} - {expense.Notes}",
+                    Description = $"Expense ID: {expenseId} - {expenseAccount.Name} - {expense.Notes}",
                     IsPosted = true,
                     PostedAt = DateTime.UtcNow,
                     PostedBy = CurrentUserId,

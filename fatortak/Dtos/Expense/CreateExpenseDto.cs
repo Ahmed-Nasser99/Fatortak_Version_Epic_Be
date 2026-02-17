@@ -8,6 +8,7 @@
         public IFormFile? File { get; set; }
         public Guid? BranchId { get; set; }
         public Guid? ProjectId { get; set; }
+        public Guid? AccountId { get; set; }
         public string? Category { get; set; }
     }
 }
