@@ -1,6 +1,8 @@
 using fatortak.Common.Enum;
 using fatortak.Context;
+using fatortak.Dtos.Accounting;
 using fatortak.Entities;
+using fatortak.Services.AccountingService;
 using Microsoft.EntityFrameworkCore;
 
 namespace fatortak.Services.CustodyService
@@ -14,15 +16,18 @@ namespace fatortak.Services.CustodyService
         private readonly ApplicationDbContext _context;
         private readonly ILogger<CustodyService> _logger;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IAccountingService _accountingService;
 
         public CustodyService(
             ApplicationDbContext context,
             ILogger<CustodyService> logger,
-            IHttpContextAccessor httpContextAccessor)
+            IHttpContextAccessor httpContextAccessor,
+            IAccountingService accountingService)
         {
             _context = context;
             _logger = logger;
             _httpContextAccessor = httpContextAccessor;
+            _accountingService = accountingService;
         }
 
         private Guid TenantId => GetCurrentTenantId();
@@ -258,6 +263,45 @@ namespace fatortak.Services.CustodyService
             return $"JE-{nextNumber:D4}";
         }
 
+        public async Task<AccountDto> CreateCustodyAccountAsync(string name, string? description)
+        {
+            try
+            {
+                // Find the "Employee Custody" parent account (code 1500)
+                var parentAccount = await _context.Accounts
+                    .FirstOrDefaultAsync(a => a.AccountCode == "1500" && a.TenantId == TenantId);
+
+                if (parentAccount == null)
+                {
+                    throw new Exception("Employee Custody parent account (1500) not found. Please ensure it is seeded.");
+                }
+
+                var result = await _accountingService.GetOrCreateAccountForEntityAsync(
+                    name,
+                    Common.Enum.AccountType.Asset,
+                    parentAccount.Id
+                );
+
+                if (!result.Success)
+                {
+                    throw new Exception(result.ErrorMessage);
+                }
+
+                // Update description if provided
+                if (!string.IsNullOrWhiteSpace(description))
+                {
+                    await _accountingService.UpdateAccountAsync(result.Data.Id, new AccountUpdateDto { Description = description });
+                    result.Data.Description = description;
+                }
+
+                return result.Data;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating custody account for {Name}", name);
+                throw;
+            }
+        }
         #endregion
     }
 }

@@ -20,6 +20,11 @@ namespace fatortak.Services.CustodyService
         /// Replenish custody using an account ID directly.
         /// </summary>
         Task<bool> ReplenishCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description);
+
+        /// <summary>
+        /// Create a new custody account under the "Employee Custody" parent.
+        /// </summary>
+        Task<fatortak.Dtos.Accounting.AccountDto> CreateCustodyAccountAsync(string name, string? description);
     }
 }
 

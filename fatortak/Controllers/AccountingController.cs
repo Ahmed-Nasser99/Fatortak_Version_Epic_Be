@@ -622,6 +622,26 @@ namespace fatortak.Controllers
         }
 
         /// <summary>
+        /// Create a new custody account under the "Employee Custody" parent.
+        /// </summary>
+        [HttpPost("custody/accounts")]
+        public async Task<ActionResult<AccountDto>> CreateCustodyAccount([FromBody] CreateCustodyAccountDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid) return BadRequest(ModelState);
+
+                var account = await _custodyService.CreateCustodyAccountAsync(dto.Name, dto.Description);
+                return Ok(account);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating custody account for {Name}", dto.Name);
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Return custody using an account ID directly.
         /// </summary>
         [HttpPost("custody/return-by-account")]
