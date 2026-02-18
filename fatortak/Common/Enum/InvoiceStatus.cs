@@ -7,6 +7,7 @@
         Paid,
         Overdue,
         Cancelled,
-        PartialPaid
+        PartialPaid,
+        Posted
     }
 }

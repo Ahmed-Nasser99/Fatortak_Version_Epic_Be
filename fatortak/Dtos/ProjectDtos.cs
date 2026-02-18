@@ -10,9 +10,10 @@ namespace fatortak.Dtos
         public Guid? CustomerId { get; set; }
         public string? CustomerName { get; set; }
         public ProjectStatus Status { get; set; }
-        public decimal? TotalBudget { get; set; }
-        public DateTime? StartDate { get; set; }
-        public DateTime? EndDate { get; set; }
+        public decimal ContractValue { get; set; }
+        public string? PaymentTerms { get; set; }
+        public string? Notes { get; set; }
+        public Guid? InvoiceId { get; set; } // For activated projects
         public bool IsInternal { get; set; }
         public DateTime CreatedAt { get; set; }
     }
@@ -23,9 +24,7 @@ namespace fatortak.Dtos
         public string? Description { get; set; }
         public Guid? CustomerId { get; set; }
         public ProjectStatus Status { get; set; } = ProjectStatus.Active;
-        public decimal? Budget { get; set; }
-        public DateTime? StartDate { get; set; }
-        public DateTime? EndDate { get; set; }
+        public decimal ContractValue { get; set; }
     }
 
     public class UpdateProjectDto
@@ -34,9 +33,7 @@ namespace fatortak.Dtos
         public string? Description { get; set; }
         public Guid? CustomerId { get; set; } // Can update to link/unlink client
         public ProjectStatus Status { get; set; }
-        public decimal? Budget { get; set; }
-        public DateTime? StartDate { get; set; }
-        public DateTime? EndDate { get; set; }
+        public decimal ContractValue { get; set; }
     }
     public class UpdateProjectStatusDto
     {

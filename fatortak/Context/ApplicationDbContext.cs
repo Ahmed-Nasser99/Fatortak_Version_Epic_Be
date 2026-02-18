@@ -42,6 +42,7 @@ namespace fatortak.Context
         public DbSet<PayrollItem> PayrollItems { get; set; }
         public DbSet<Branch> Branches { get; set; }
         public DbSet<Project> Projects { get; set; }
+        public DbSet<ProjectLine> ProjectLines { get; set; }
 
         // Accounting module
         public DbSet<Account> Accounts { get; set; }
@@ -131,11 +132,11 @@ namespace fatortak.Context
                 .HasForeignKey(pi => pi.PayrollId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            modelBuilder.Entity<Branch>()
-                .HasOne(b => b.Tenant)
-                .WithMany()
-                .HasForeignKey(b => b.TenantId)
-                .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<ProjectLine>()
+                .HasOne(pl => pl.Project)
+                .WithMany(p => p.ProjectLines)
+                .HasForeignKey(pl => pl.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
         }

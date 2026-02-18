@@ -22,10 +22,10 @@ namespace fatortak.Entities
         public ProjectStatus Status { get; set; } = ProjectStatus.Active;
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal? TotalBudget { get; set; }
+        public decimal ContractValue { get; set; }
 
-        public DateTime? StartDate { get; set; }
-        public DateTime? EndDate { get; set; }
+        public string? PaymentTerms { get; set; }
+        public string? Notes { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }
@@ -36,6 +36,7 @@ namespace fatortak.Entities
         public Tenant Tenant { get; set; }
         
         // Navigation properties
+        public ICollection<ProjectLine> ProjectLines { get; set; } = new List<ProjectLine>();
         public ICollection<Transaction> Transactions { get; set; }
         public ICollection<Expenses> Expenses { get; set; }
     }

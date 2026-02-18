@@ -1,5 +1,6 @@
 using fatortak.Dtos;
 using fatortak.Dtos.Shared;
+using fatortak.Dtos.Project;
 using fatortak.Services.ProjectService;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -26,6 +27,14 @@ namespace fatortak.Controllers
             var result = await _projectService.CreateProjectAsync(dto);
             if (!result.Success) return BadRequest(result);
             return CreatedAtAction(nameof(GetProject), new { projectId = result.Data.Id }, result);
+        }
+
+        [HttpPost("with-contract")]
+        public async Task<ActionResult<ServiceResult<ProjectDto>>> CreateProjectWithContract([FromBody] CreateProjectWithContractCommand command)
+        {
+            var result = await _projectService.CreateProjectWithContractAsync(command);
+            if (!result.Success) return BadRequest(result);
+            return Ok(result);
         }
 
         [HttpGet]

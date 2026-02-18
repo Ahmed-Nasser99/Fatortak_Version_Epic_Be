@@ -1,6 +1,7 @@
 using fatortak.Dtos;
 using fatortak.Dtos.Shared;
 using fatortak.Common.Enum;
+using fatortak.Dtos.Project;
 
 namespace fatortak.Services.ProjectService
 {
@@ -12,5 +13,6 @@ namespace fatortak.Services.ProjectService
         Task<ServiceResult<ProjectDto>> UpdateProjectStatusAsync(Guid projectId, ProjectStatus status);
         Task<ServiceResult<ProjectDto>> UpdateProjectAsync(Guid projectId, UpdateProjectDto dto);
         Task<ServiceResult<bool>> DeleteProjectAsync(Guid projectId);
+        Task<ServiceResult<ProjectDto>> CreateProjectWithContractAsync(CreateProjectWithContractCommand command);
     }
 }

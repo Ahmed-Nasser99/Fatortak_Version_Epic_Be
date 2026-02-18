@@ -9,6 +9,7 @@ namespace fatortak.Common.Enum
         OnHold,
         Cancelled,
         Settled,
-        Archived
+        Archived,
+        Draft
     }
 }

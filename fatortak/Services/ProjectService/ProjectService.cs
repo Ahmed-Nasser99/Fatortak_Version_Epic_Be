@@ -4,6 +4,9 @@ using fatortak.Dtos.Shared;
 using fatortak.Entities;
 using fatortak.Common.Enum;
 using Microsoft.EntityFrameworkCore;
+using fatortak.Dtos.Project;
+using fatortak.Services.AccountingPostingService;
+using fatortak.Helpers;
 
 namespace fatortak.Services.ProjectService
 {
@@ -12,12 +15,18 @@ namespace fatortak.Services.ProjectService
         private readonly ApplicationDbContext _context;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ILogger<ProjectService> _logger;
+        private readonly IAccountingPostingService _accountingPostingService;
 
-        public ProjectService(ApplicationDbContext context, IHttpContextAccessor httpContextAccessor, ILogger<ProjectService> logger)
+        public ProjectService(
+            ApplicationDbContext context, 
+            IHttpContextAccessor httpContextAccessor, 
+            ILogger<ProjectService> logger,
+            IAccountingPostingService accountingPostingService)
         {
             _context = context;
             _httpContextAccessor = httpContextAccessor;
             _logger = logger;
+            _accountingPostingService = accountingPostingService;
         }
 
         private Guid TenantId =>
@@ -34,9 +43,7 @@ namespace fatortak.Services.ProjectService
                     Description = dto.Description,
                     CustomerId = dto.CustomerId,
                     Status = dto.Status,
-                    TotalBudget = dto.Budget,
-                    StartDate = dto.StartDate,
-                    EndDate = dto.EndDate,
+                    ContractValue = dto.ContractValue,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -158,9 +165,7 @@ namespace fatortak.Services.ProjectService
                 project.Description = dto.Description;
                 project.CustomerId = dto.CustomerId;
                 project.Status = dto.Status;
-                project.TotalBudget = dto.Budget;
-                project.StartDate = dto.StartDate;
-                project.EndDate = dto.EndDate;
+                project.ContractValue = dto.ContractValue;
                 project.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
@@ -176,6 +181,153 @@ namespace fatortak.Services.ProjectService
             {
                 _logger.LogError(ex, "Error updating project");
                 return ServiceResult<ProjectDto>.Failure("Failed to update project");
+            }
+        }
+
+        public async Task<ServiceResult<ProjectDto>> CreateProjectWithContractAsync(CreateProjectWithContractCommand command)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // 1) Validate
+                if (command.Lines == null || !command.Lines.Any())
+                    return ServiceResult<ProjectDto>.Failure("At least one contract line is required");
+
+                // 2) Calculate totals
+                decimal contractValue = 0;
+                foreach (var line in command.Lines)
+                {
+                    if (line.Quantity <= 0 || line.UnitPrice <= 0)
+                        return ServiceResult<ProjectDto>.Failure("Quantity and Unit Price must be greater than 0");
+                    
+                    contractValue += Math.Round(line.Quantity * line.UnitPrice, 2);
+                }
+
+                var userId = new Guid(UserHelper.GetUserId());
+
+                // 3) Create Project
+                var project = new Project
+                {
+                    TenantId = TenantId,
+                    Name = command.ProjectName,
+                    CustomerId = command.ClientId,
+                    ContractValue = contractValue,
+                    PaymentTerms = command.PaymentTerms,
+                    Notes = command.Notes,
+                    Status = command.ActivateImmediately ? ProjectStatus.Active : ProjectStatus.Draft,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                await _context.Projects.AddAsync(project);
+                await _context.SaveChangesAsync();
+
+                // 4) Create ProjectLines
+                foreach (var lineDto in command.Lines)
+                {
+                    var lineTotal = Math.Round(lineDto.Quantity * lineDto.UnitPrice, 2);
+                    var projectLine = new ProjectLine
+                    {
+                        TenantId = TenantId,
+                        ProjectId = project.Id,
+                        Description = lineDto.Description,
+                        Quantity = lineDto.Quantity,
+                        Unit = lineDto.Unit,
+                        UnitPrice = lineDto.UnitPrice,
+                        LineTotal = lineTotal,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    await _context.ProjectLines.AddAsync(projectLine);
+                }
+                await _context.SaveChangesAsync();
+
+                Guid? invoiceId = null;
+
+                // 5) If ActivateImmediately
+                if (command.ActivateImmediately)
+                {
+                    var company = await _context.Companies.FirstOrDefaultAsync(c => c.TenantId == TenantId);
+                    if (company == null)
+                        return ServiceResult<ProjectDto>.Failure("Company settings not found");
+
+                    var lastInvoice = await _context.Invoices
+                        .Where(i => i.TenantId == TenantId)
+                        .OrderByDescending(i => i.CreatedAt)
+                        .FirstOrDefaultAsync();
+
+                    // Generate invoice number (simple implementation matching InvoiceService)
+                    var prefix = company.InvoicePrefix ?? "INV";
+                    var nextNumber = 1;
+                    if (lastInvoice != null && lastInvoice.InvoiceNumber.Contains("-"))
+                    {
+                        var parts = lastInvoice.InvoiceNumber.Split('-');
+                        if (parts.Length > 1 && int.TryParse(parts[1], out int lastNum))
+                            nextNumber = lastNum + 1;
+                    }
+                    var invoiceNumber = $"{prefix}-{nextNumber:D4}";
+
+                    // a) Create Invoice
+                    var invoice = new Invoice
+                    {
+                        TenantId = TenantId,
+                        InvoiceNumber = invoiceNumber,
+                        CustomerId = command.ClientId,
+                        UserId = userId,
+                        IssueDate = DateTime.UtcNow.Date,
+                        DueDate = DateTime.UtcNow.Date.AddDays(30), // Default 30 days
+                        Currency = company.Currency,
+                        InvoiceType = InvoiceTypes.Sell.ToString(),
+                        Notes = project.Notes,
+                        Terms = project.PaymentTerms,
+                        ProjectId = project.Id,
+                        Status = InvoiceStatus.Posted.ToString(),
+                        Subtotal = project.ContractValue,
+                        VatAmount = 0, // Simplified, can be extended
+                        Total = project.ContractValue,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    _context.Invoices.Add(invoice);
+                    await _context.SaveChangesAsync();
+
+                    // Create Invoice lines from Project lines
+                    foreach (var pl in project.ProjectLines)
+                    {
+                        var invoiceItem = new InvoiceItem
+                        {
+                            TenantId = TenantId,
+                            InvoiceId = invoice.Id,
+                            Description = pl.Description,
+                            Quantity = (int)pl.Quantity,
+                            UnitPrice = pl.UnitPrice,
+                            VatRate = 0,
+                            LineTotal = pl.LineTotal
+                        };
+                        _context.InvoiceItems.Add(invoiceItem);
+                    }
+                    await _context.SaveChangesAsync();
+
+                    // b) Create Journal Entry
+                    var posted = await _accountingPostingService.PostInvoiceAsync(invoice.Id);
+                    if (!posted)
+                        throw new Exception("Failed to post invoice to accounting");
+
+                    invoiceId = invoice.Id;
+                }
+
+                await transaction.CommitAsync();
+
+                // 6) Return Project DTO
+                project.Customer = await _context.Customers.FindAsync(command.ClientId);
+                var dto = MapToDto(project);
+                dto.InvoiceId = invoiceId;
+                
+                return ServiceResult<ProjectDto>.SuccessResult(dto);
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Error creating project with contract");
+                return ServiceResult<ProjectDto>.Failure("Failed to create project with contract setup");
             }
         }
 
@@ -211,9 +363,9 @@ namespace fatortak.Services.ProjectService
                 CustomerId = project.CustomerId,
                 CustomerName = project.Customer?.Name,
                 Status = project.Status,
-                TotalBudget = project.TotalBudget,
-                StartDate = project.StartDate,
-                EndDate = project.EndDate,
+                ContractValue = project.ContractValue,
+                PaymentTerms = project.PaymentTerms,
+                Notes = project.Notes,
                 IsInternal = project.IsInternal,
                 CreatedAt = project.CreatedAt
             };
