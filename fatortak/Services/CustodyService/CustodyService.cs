@@ -40,83 +40,17 @@ namespace fatortak.Services.CustodyService
             return Guid.TryParse(userIdClaim, out var userId) ? userId : null;
         }
 
-        public async Task<Guid> GetOrCreateEmployeeCustodyAccountAsync(Guid employeeId, string employeeName)
-        {
-            // Check if account already exists
-            var accountCode = $"1500-{employeeId.ToString().Substring(0, 8)}"; // Format: 1500-{shortId}
-            var existingAccount = await _context.Accounts
-                .FirstOrDefaultAsync(a => a.TenantId == TenantId && a.AccountCode == accountCode);
-
-            if (existingAccount != null)
-            {
-                return existingAccount.Id;
-            }
-
-            // Get or create parent account for Employee Custody
-            var parentAccount = await _context.Accounts
-                .FirstOrDefaultAsync(a => a.TenantId == TenantId && a.AccountCode == "1500");
-
-            if (parentAccount == null)
-            {
-                // Create parent account for Employee Custody
-                parentAccount = new Account
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = TenantId,
-                    AccountCode = "1500",
-                    Name = "Employee Custody",
-                    AccountType = AccountType.Asset,
-                    Level = 0,
-                    IsActive = true,
-                    IsPostable = false, // Parent account, not postable
-                    Description = "Employee advances and custody accounts",
-                    CreatedAt = DateTime.UtcNow,
-                    CreatedBy = CurrentUserId
-                };
-                _context.Accounts.Add(parentAccount);
-                await _context.SaveChangesAsync();
-            }
-
-            // Create employee-specific custody account
-            var employeeAccount = new Account
-            {
-                Id = Guid.NewGuid(),
-                TenantId = TenantId,
-                AccountCode = accountCode,
-                Name = $"Custody - {employeeName}",
-                AccountType = AccountType.Asset,
-                ParentAccountId = parentAccount.Id,
-                Level = 1,
-                IsActive = true,
-                IsPostable = true, // Leaf account, postable
-                Description = $"Employee custody account for {employeeName}",
-                CreatedAt = DateTime.UtcNow,
-                CreatedBy = CurrentUserId
-            };
-
-            _context.Accounts.Add(employeeAccount);
-            await _context.SaveChangesAsync();
-
-            return employeeAccount.Id;
-        }
-
-        public async Task<bool> GiveCustodyAsync(Guid employeeId, decimal amount, Guid? sourceAccountId, string? description)
+        public async Task<bool> GiveCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // Get employee
-                var employee = await _context.Employees
-                    .FirstOrDefaultAsync(e => e.Id == employeeId && e.TenantId == TenantId);
-
-                if (employee == null)
+                var account = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId && a.TenantId == TenantId);
+                if (account == null)
                 {
-                    _logger.LogError("Employee {EmployeeId} not found", employeeId);
+                    _logger.LogError("Custody account {AccountId} not found", accountId);
                     return false;
                 }
-
-                // Get or create employee custody account
-                var custodyAccountId = await GetOrCreateEmployeeCustodyAccountAsync(employeeId, employee.FullName);
 
                 // Get source account (Cash or Bank)
                 var sourceAccount = sourceAccountId.HasValue
@@ -140,7 +74,7 @@ namespace fatortak.Services.CustodyService
                     EntryNumber = entryNumber,
                     Date = DateTime.UtcNow.Date,
                     ReferenceType = JournalEntryReferenceType.Manual,
-                    Description = description ?? $"Custody given to {employee.FullName}",
+                    Description = description ?? $"Custody given to {account.Name}",
                     IsPosted = true,
                     PostedAt = DateTime.UtcNow,
                     PostedBy = CurrentUserId,
@@ -155,10 +89,10 @@ namespace fatortak.Services.CustodyService
                 {
                     Id = Guid.NewGuid(),
                     JournalEntryId = journalEntry.Id,
-                    AccountId = custodyAccountId,
+                    AccountId = account.Id,
                     Debit = amount,
                     Credit = 0,
-                    Description = $"Custody given to {employee.FullName}"
+                    Description = description ?? $"Custody given to {account.Name}"
                 });
 
                 // Cr Cash/Bank Account
@@ -169,150 +103,35 @@ namespace fatortak.Services.CustodyService
                     AccountId = sourceAccount.Id,
                     Debit = 0,
                     Credit = amount,
-                    Description = $"Custody payment to {employee.FullName}"
+                    Description = description ?? $"Custody payment to {account.Name}"
                 });
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                _logger.LogInformation("Successfully gave custody {Amount} to employee {EmployeeId}", amount, employeeId);
+                _logger.LogInformation("Successfully gave custody {Amount} to account {AccountId}", amount, accountId);
                 return true;
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                _logger.LogError(ex, "Error giving custody to employee {EmployeeId}", employeeId);
+                _logger.LogError(ex, "Error giving custody to account {AccountId}", accountId);
                 return false;
             }
         }
 
-        public async Task<bool> UseCustodyForExpenseAsync(int expenseId, Guid employeeId)
+
+        public async Task<bool> ReturnCustodyByAccountAsync(Guid accountId, decimal amount, Guid? destinationAccountId, string? description)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // Get expense
-                var expense = await _context.Expenses
-                    .FirstOrDefaultAsync(e => e.Id == expenseId && e.TenantId == TenantId);
-
-                if (expense == null)
+                var account = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId && a.TenantId == TenantId);
+                if (account == null)
                 {
-                    _logger.LogError("Expense {ExpenseId} not found", expenseId);
+                    _logger.LogError("Custody account {AccountId} not found", accountId);
                     return false;
                 }
-
-                // Get employee
-                var employee = await _context.Employees
-                    .FirstOrDefaultAsync(e => e.Id == employeeId && e.TenantId == TenantId);
-
-                if (employee == null)
-                {
-                    _logger.LogError("Employee {EmployeeId} not found", employeeId);
-                    return false;
-                }
-
-                // Get or create employee custody account
-                var custodyAccountId = await GetOrCreateEmployeeCustodyAccountAsync(employeeId, employee.FullName);
-
-                // Get expense category account
-                var expenseAccount = await GetAccountByCodeAsync("5000"); // Default Expense Account
-                
-                if (expense.CategoryId.HasValue)
-                {
-                    // Load category to get associated account
-                    await _context.Entry(expense).Reference(e => e.Category).LoadAsync();
-                    if (expense.Category?.AccountId != null)
-                    {
-                        var categoryAccount = await _context.Accounts
-                            .FirstOrDefaultAsync(a => a.Id == expense.Category.AccountId && a.TenantId == TenantId);
-                        if (categoryAccount != null)
-                        {
-                            expenseAccount = categoryAccount;
-                        }
-                    }
-                }
-
-                if (expenseAccount == null)
-                {
-                    _logger.LogError("Expense account not found");
-                    await transaction.RollbackAsync();
-                    return false;
-                }
-
-                // Generate entry number
-                var entryNumber = await GenerateEntryNumberAsync();
-
-                var journalEntry = new JournalEntry
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = TenantId,
-                    EntryNumber = entryNumber,
-                    Date = expense.Date.ToDateTime(TimeOnly.MinValue).Date,
-                    ReferenceType = JournalEntryReferenceType.Expense,
-                    ReferenceId = null,
-                    Description = $"Expense ID: {expenseId} - Paid from custody - {employee.FullName}",
-                    IsPosted = true,
-                    PostedAt = DateTime.UtcNow,
-                    PostedBy = CurrentUserId,
-                    CreatedAt = DateTime.UtcNow,
-                    CreatedBy = CurrentUserId
-                };
-
-                _context.JournalEntries.Add(journalEntry);
-
-                // Dr Expense Account
-                _context.JournalEntryLines.Add(new JournalEntryLine
-                {
-                    Id = Guid.NewGuid(),
-                    JournalEntryId = journalEntry.Id,
-                    AccountId = expenseAccount.Id,
-                    Debit = expense.Total,
-                    Credit = 0,
-                    Description = expense.Notes ?? $"Expense - {expense.Category?.Name ?? "General"}"
-                });
-
-                // Cr Employee Custody Account
-                _context.JournalEntryLines.Add(new JournalEntryLine
-                {
-                    Id = Guid.NewGuid(),
-                    JournalEntryId = journalEntry.Id,
-                    AccountId = custodyAccountId,
-                    Debit = 0,
-                    Credit = expense.Total,
-                    Description = $"Custody used for expense by {employee.FullName}"
-                });
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                _logger.LogInformation("Successfully posted expense {ExpenseId} using custody for employee {EmployeeId}", expenseId, employeeId);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                _logger.LogError(ex, "Error using custody for expense {ExpenseId}", expenseId);
-                return false;
-            }
-        }
-
-        public async Task<bool> ReturnCustodyAsync(Guid employeeId, decimal amount, Guid? destinationAccountId, string? description)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                // Get employee
-                var employee = await _context.Employees
-                    .FirstOrDefaultAsync(e => e.Id == employeeId && e.TenantId == TenantId);
-
-                if (employee == null)
-                {
-                    _logger.LogError("Employee {EmployeeId} not found", employeeId);
-                    return false;
-                }
-
-                // Get employee custody account
-                var custodyAccountId = await GetOrCreateEmployeeCustodyAccountAsync(employeeId, employee.FullName);
 
                 // Get destination account (Cash or Bank)
                 var destinationAccount = destinationAccountId.HasValue
@@ -336,7 +155,7 @@ namespace fatortak.Services.CustodyService
                     EntryNumber = entryNumber,
                     Date = DateTime.UtcNow.Date,
                     ReferenceType = JournalEntryReferenceType.Manual,
-                    Description = description ?? $"Custody returned by {employee.FullName}",
+                    Description = description ?? $"Custody returned by {account.Name}",
                     IsPosted = true,
                     PostedAt = DateTime.UtcNow,
                     PostedBy = CurrentUserId,
@@ -354,7 +173,7 @@ namespace fatortak.Services.CustodyService
                     AccountId = destinationAccount.Id,
                     Debit = amount,
                     Credit = 0,
-                    Description = $"Custody returned by {employee.FullName}"
+                    Description = description ?? $"Custody returned to {destinationAccount.Name}"
                 });
 
                 // Cr Employee Custody Account
@@ -362,66 +181,47 @@ namespace fatortak.Services.CustodyService
                 {
                     Id = Guid.NewGuid(),
                     JournalEntryId = journalEntry.Id,
-                    AccountId = custodyAccountId,
+                    AccountId = account.Id,
                     Debit = 0,
                     Credit = amount,
-                    Description = $"Custody return from {employee.FullName}"
+                    Description = description ?? $"Custody return from {account.Name}"
                 });
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                _logger.LogInformation("Successfully returned custody {Amount} from employee {EmployeeId}", amount, employeeId);
+                _logger.LogInformation("Successfully returned custody {Amount} from account {AccountId}", amount, accountId);
                 return true;
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                _logger.LogError(ex, "Error returning custody from employee {EmployeeId}", employeeId);
+                _logger.LogError(ex, "Error returning custody from account {AccountId}", accountId);
                 return false;
             }
         }
 
-        public async Task<bool> ReplenishCustodyAsync(Guid employeeId, decimal amount, Guid? sourceAccountId, string? description)
+
+        public async Task<bool> ReplenishCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description)
         {
-            // Replenish is same as Give - adds more money to custody
-            return await GiveCustodyAsync(employeeId, amount, sourceAccountId, description ?? "Custody replenishment");
+            return await GiveCustodyByAccountAsync(accountId, amount, sourceAccountId, description ?? "Custody replenishment");
         }
 
-        public async Task<decimal> GetEmployeeCustodyBalanceAsync(Guid employeeId)
+
+        private async Task<decimal> GetAccountBalanceAsync(Guid accountId)
         {
-            try
-            {
-                // Get employee
-                var employee = await _context.Employees
-                    .FirstOrDefaultAsync(e => e.Id == employeeId && e.TenantId == TenantId);
+            // Get balance from accounting
+            var query = _context.JournalEntryLines
+                .Include(jel => jel.JournalEntry)
+                .Where(jel => jel.AccountId == accountId && 
+                              jel.JournalEntry.TenantId == TenantId && 
+                              jel.JournalEntry.IsPosted);
 
-                if (employee == null)
-                {
-                    return 0;
-                }
+            var debitTotal = await query.SumAsync(jel => jel.Debit);
+            var creditTotal = await query.SumAsync(jel => jel.Credit);
 
-                // Get employee custody account
-                var custodyAccountId = await GetOrCreateEmployeeCustodyAccountAsync(employeeId, employee.FullName);
-
-                // Get balance from accounting
-                var query = _context.JournalEntryLines
-                    .Include(jel => jel.JournalEntry)
-                    .Where(jel => jel.AccountId == custodyAccountId && 
-                                  jel.JournalEntry.TenantId == TenantId && 
-                                  jel.JournalEntry.IsPosted);
-
-                var debitTotal = await query.SumAsync(jel => jel.Debit);
-                var creditTotal = await query.SumAsync(jel => jel.Credit);
-
-                // Custody is an Asset account: Balance = Debit - Credit
-                return debitTotal - creditTotal;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting custody balance for employee {EmployeeId}", employeeId);
-                return 0;
-            }
+            // Custody is an Asset account: Balance = Debit - Credit
+            return debitTotal - creditTotal;
         }
 
         #region Helper Methods

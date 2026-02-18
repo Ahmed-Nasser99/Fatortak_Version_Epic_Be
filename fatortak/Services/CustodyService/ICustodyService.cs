@@ -7,38 +7,19 @@ namespace fatortak.Services.CustodyService
     public interface ICustodyService
     {
         /// <summary>
-        /// Give custody to an employee (advance payment).
-        /// Creates: Dr Employee Custody Account, Cr Cash/Bank Account
+        /// Give custody using an account ID directly.
         /// </summary>
-        Task<bool> GiveCustodyAsync(Guid employeeId, decimal amount, Guid? sourceAccountId, string? description);
+        Task<bool> GiveCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description);
 
         /// <summary>
-        /// Use custody for an expense (employee uses their advance).
-        /// Creates: Dr Expense Account, Cr Employee Custody Account
+        /// Return custody using an account ID directly.
         /// </summary>
-        Task<bool> UseCustodyForExpenseAsync(int expenseId, Guid employeeId);
+        Task<bool> ReturnCustodyByAccountAsync(Guid accountId, decimal amount, Guid? destinationAccountId, string? description);
 
         /// <summary>
-        /// Return custody (employee returns unused advance).
-        /// Creates: Dr Cash/Bank Account, Cr Employee Custody Account
+        /// Replenish custody using an account ID directly.
         /// </summary>
-        Task<bool> ReturnCustodyAsync(Guid employeeId, decimal amount, Guid? destinationAccountId, string? description);
-
-        /// <summary>
-        /// Replenish custody (add more money to employee's advance).
-        /// Creates: Dr Employee Custody Account, Cr Cash/Bank Account
-        /// </summary>
-        Task<bool> ReplenishCustodyAsync(Guid employeeId, decimal amount, Guid? sourceAccountId, string? description);
-
-        /// <summary>
-        /// Get employee custody balance from accounting system
-        /// </summary>
-        Task<decimal> GetEmployeeCustodyBalanceAsync(Guid employeeId);
-
-        /// <summary>
-        /// Get or create employee custody account in Chart of Accounts
-        /// </summary>
-        Task<Guid> GetOrCreateEmployeeCustodyAccountAsync(Guid employeeId, string employeeName);
+        Task<bool> ReplenishCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description);
     }
 }
 

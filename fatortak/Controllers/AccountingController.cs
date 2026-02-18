@@ -595,152 +595,86 @@ namespace fatortak.Controllers
         #region Custody Operations
 
         /// <summary>
-        /// Give custody (advance) to an employee
+        /// Give custody using an account ID directly.
         /// </summary>
-        [HttpPost("custody/give")]
-        public async Task<ActionResult<bool>> GiveCustody([FromBody] GiveCustodyDto dto)
+        [HttpPost("custody/give-by-account")]
+        public async Task<ActionResult<bool>> GiveCustodyByAccount([FromBody] GiveCustodyByAccountDto dto)
         {
             try
             {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ModelState);
-                }
+                if (!ModelState.IsValid) return BadRequest(ModelState);
 
-                var result = await _custodyService.GiveCustodyAsync(
-                    dto.EmployeeId,
+                var result = await _custodyService.GiveCustodyByAccountAsync(
+                    dto.AccountId,
                     dto.Amount,
                     dto.SourceAccountId,
                     dto.Description);
 
-                if (!result)
-                {
-                    return BadRequest(new { message = "Failed to give custody. Check logs for details." });
-                }
+                if (!result) return BadRequest(new { message = "Failed to give custody. Check logs." });
 
                 return Ok(new { success = true, message = "Custody given successfully" });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error giving custody to employee {dto.EmployeeId}");
+                _logger.LogError(ex, $"Error giving custody to account {dto.AccountId}");
                 return StatusCode(500, new { message = "Failed to give custody" });
             }
         }
 
         /// <summary>
-        /// Use custody for an expense
+        /// Return custody using an account ID directly.
         /// </summary>
-        [HttpPost("custody/use-for-expense")]
-        public async Task<ActionResult<bool>> UseCustodyForExpense([FromBody] UseCustodyForExpenseDto dto)
+        [HttpPost("custody/return-by-account")]
+        public async Task<ActionResult<bool>> ReturnCustodyByAccount([FromBody] ReturnCustodyByAccountDto dto)
         {
             try
             {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ModelState);
-                }
+                if (!ModelState.IsValid) return BadRequest(ModelState);
 
-                var result = await _custodyService.UseCustodyForExpenseAsync(
-                    dto.ExpenseId,
-                    dto.EmployeeId);
-
-                if (!result)
-                {
-                    return BadRequest(new { message = "Failed to use custody for expense. Check logs for details." });
-                }
-
-                return Ok(new { success = true, message = "Expense posted using custody successfully" });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error using custody for expense {dto.ExpenseId}");
-                return StatusCode(500, new { message = "Failed to use custody for expense" });
-            }
-        }
-
-        /// <summary>
-        /// Return custody (unused advance) from employee
-        /// </summary>
-        [HttpPost("custody/return")]
-        public async Task<ActionResult<bool>> ReturnCustody([FromBody] ReturnCustodyDto dto)
-        {
-            try
-            {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ModelState);
-                }
-
-                var result = await _custodyService.ReturnCustodyAsync(
-                    dto.EmployeeId,
+                var result = await _custodyService.ReturnCustodyByAccountAsync(
+                    dto.AccountId,
                     dto.Amount,
                     dto.DestinationAccountId,
                     dto.Description);
 
-                if (!result)
-                {
-                    return BadRequest(new { message = "Failed to return custody. Check logs for details." });
-                }
+                if (!result) return BadRequest(new { message = "Failed to return custody. Check logs." });
 
                 return Ok(new { success = true, message = "Custody returned successfully" });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error returning custody from employee {dto.EmployeeId}");
+                _logger.LogError(ex, $"Error returning custody from account {dto.AccountId}");
                 return StatusCode(500, new { message = "Failed to return custody" });
             }
         }
 
         /// <summary>
-        /// Replenish custody (add more money to employee's advance)
+        /// Replenish custody using an account ID directly.
         /// </summary>
-        [HttpPost("custody/replenish")]
-        public async Task<ActionResult<bool>> ReplenishCustody([FromBody] ReplenishCustodyDto dto)
+        [HttpPost("custody/replenish-by-account")]
+        public async Task<ActionResult<bool>> ReplenishCustodyByAccount([FromBody] ReplenishCustodyByAccountDto dto)
         {
             try
             {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ModelState);
-                }
+                if (!ModelState.IsValid) return BadRequest(ModelState);
 
-                var result = await _custodyService.ReplenishCustodyAsync(
-                    dto.EmployeeId,
+                var result = await _custodyService.ReplenishCustodyByAccountAsync(
+                    dto.AccountId,
                     dto.Amount,
                     dto.SourceAccountId,
                     dto.Description);
 
-                if (!result)
-                {
-                    return BadRequest(new { message = "Failed to replenish custody. Check logs for details." });
-                }
+                if (!result) return BadRequest(new { message = "Failed to replenish custody. Check logs." });
 
                 return Ok(new { success = true, message = "Custody replenished successfully" });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error replenishing custody for employee {dto.EmployeeId}");
+                _logger.LogError(ex, $"Error replenishing custody for account {dto.AccountId}");
                 return StatusCode(500, new { message = "Failed to replenish custody" });
             }
         }
 
-        /// <summary>
-        /// Get employee custody balance
-        /// </summary>
-        [HttpGet("custody/balance/{employeeId}")]
-        public async Task<ActionResult<decimal>> GetEmployeeCustodyBalance(Guid employeeId)
-        {
-            try
-            {
-                var balance = await _custodyService.GetEmployeeCustodyBalanceAsync(employeeId);
-                return Ok(new { employeeId, balance });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error getting custody balance for employee {employeeId}");
-                return StatusCode(500, new { message = "Failed to get custody balance" });
-            }
-        }
 
         #endregion
     }
@@ -754,45 +688,28 @@ namespace fatortak.Controllers
         public decimal Amount { get; set; }
     }
 
-    /// <summary>
-    /// DTO for giving custody
-    /// </summary>
-    public class GiveCustodyDto
+
+    public class GiveCustodyByAccountDto
     {
-        public Guid EmployeeId { get; set; }
+        public Guid AccountId { get; set; }
         public decimal Amount { get; set; }
-        public Guid? SourceAccountId { get; set; } // Cash/Bank account ID from Chart of Accounts
+        public Guid? SourceAccountId { get; set; }
         public string? Description { get; set; }
     }
 
-    /// <summary>
-    /// DTO for using custody for expense
-    /// </summary>
-    public class UseCustodyForExpenseDto
+    public class ReturnCustodyByAccountDto
     {
-        public int ExpenseId { get; set; }
-        public Guid EmployeeId { get; set; }
-    }
-
-    /// <summary>
-    /// DTO for returning custody
-    /// </summary>
-    public class ReturnCustodyDto
-    {
-        public Guid EmployeeId { get; set; }
+        public Guid AccountId { get; set; }
         public decimal Amount { get; set; }
-        public Guid? DestinationAccountId { get; set; } // Cash/Bank account ID from Chart of Accounts
+        public Guid? DestinationAccountId { get; set; }
         public string? Description { get; set; }
     }
 
-    /// <summary>
-    /// DTO for replenishing custody
-    /// </summary>
-    public class ReplenishCustodyDto
+    public class ReplenishCustodyByAccountDto
     {
-        public Guid EmployeeId { get; set; }
+        public Guid AccountId { get; set; }
         public decimal Amount { get; set; }
-        public Guid? SourceAccountId { get; set; } // Cash/Bank account ID from Chart of Accounts
+        public Guid? SourceAccountId { get; set; }
         public string? Description { get; set; }
     }
 }
