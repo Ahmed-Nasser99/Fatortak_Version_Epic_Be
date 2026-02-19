@@ -72,6 +72,7 @@ namespace fatortak.Services.ProjectService
             {
                 var query = _context.Projects
                     .Include(p => p.Customer)
+                    .Include(p => p.ProjectLines)
                     .Where(p => p.TenantId == TenantId)
                     .AsQueryable();
 
@@ -89,7 +90,11 @@ namespace fatortak.Services.ProjectService
                     .Take(pagination.PageSize)
                     .ToListAsync();
 
-                var dtos = projects.Select(MapToDto).ToList();
+                var dtos = new List<ProjectDto>();
+                foreach (var project in projects)
+                {
+                    dtos.Add(await MapToDtoWithFinancialsAsync(project));
+                }
 
                 return ServiceResult<PagedResponseDto<ProjectDto>>.SuccessResult(new PagedResponseDto<ProjectDto>
                 {
@@ -112,12 +117,13 @@ namespace fatortak.Services.ProjectService
             {
                 var project = await _context.Projects
                     .Include(p => p.Customer)
+                    .Include(p => p.ProjectLines)
                     .FirstOrDefaultAsync(p => p.Id == projectId && p.TenantId == TenantId);
 
                 if (project == null)
                     return ServiceResult<ProjectDto>.Failure("Project not found");
 
-                return ServiceResult<ProjectDto>.SuccessResult(MapToDto(project));
+                return ServiceResult<ProjectDto>.SuccessResult(await MapToDtoWithFinancialsAsync(project));
             }
             catch (Exception ex)
             {
@@ -142,7 +148,7 @@ namespace fatortak.Services.ProjectService
 
                 await _context.SaveChangesAsync();
 
-                return ServiceResult<ProjectDto>.SuccessResult(MapToDto(project));
+                return ServiceResult<ProjectDto>.SuccessResult(await MapToDtoWithFinancialsAsync(project));
             }
             catch (Exception ex)
             {
@@ -175,7 +181,7 @@ namespace fatortak.Services.ProjectService
                     project.Customer = await _context.Customers.FindAsync(dto.CustomerId);
                 }
 
-                return ServiceResult<ProjectDto>.SuccessResult(MapToDto(project));
+                return ServiceResult<ProjectDto>.SuccessResult(await MapToDtoWithFinancialsAsync(project));
             }
             catch (Exception ex)
             {
@@ -367,8 +373,38 @@ namespace fatortak.Services.ProjectService
                 PaymentTerms = project.PaymentTerms,
                 Notes = project.Notes,
                 IsInternal = project.IsInternal,
-                CreatedAt = project.CreatedAt
+                CreatedAt = project.CreatedAt,
+                ProjectLines = project.ProjectLines?.Select(l => new ProjectLineDto
+                {
+                    Id = l.Id,
+                    Description = l.Description,
+                    Quantity = l.Quantity,
+                    Unit = l.Unit,
+                    UnitPrice = l.UnitPrice,
+                    LineTotal = l.LineTotal
+                }).ToList() ?? new List<ProjectLineDto>()
             };
+        }
+
+        private async Task<ProjectDto> MapToDtoWithFinancialsAsync(Project project)
+        {
+            var dto = MapToDto(project);
+
+            dto.TotalInvoiced = await _context.Invoices
+                .Where(i => i.ProjectId == project.Id && i.TenantId == TenantId)
+                .SumAsync(i => (decimal?)i.Total) ?? 0;
+
+            dto.TotalExpenses = await _context.Expenses
+                .Where(e => e.ProjectId == project.Id && e.TenantId == TenantId)
+                .SumAsync(e => (decimal?)e.Total) ?? 0;
+
+            dto.TotalAdvances = await _context.JournalEntryLines
+                .Where(l => l.JournalEntry.ProjectId == project.Id && l.JournalEntry.TenantId == TenantId && l.JournalEntry.ReferenceType == JournalEntryReferenceType.Payment)
+                .SumAsync(l => (decimal?)l.Debit) ?? 0;
+
+            dto.NetProfit = dto.TotalInvoiced - dto.TotalExpenses - dto.TotalAdvances;
+
+            return dto;
         }
     }
 }

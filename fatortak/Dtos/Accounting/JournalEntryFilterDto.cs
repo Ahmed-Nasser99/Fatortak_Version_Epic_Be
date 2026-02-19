@@ -14,6 +14,7 @@ namespace fatortak.Dtos.Accounting
         public bool? IsPosted { get; set; }
         public Guid? AccountId { get; set; }
         public string? EntryNumber { get; set; }
+        public Guid? ProjectId { get; set; }
     }
 }
 

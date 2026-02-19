@@ -639,6 +639,10 @@ namespace fatortak.Services.InvoiceService
             if (filter.maximumPrice.HasValue)
                 query = query.Where(i => i.Total <= filter.maximumPrice.Value);
 
+            // Project filter
+            if (filter.ProjectId.HasValue)
+                query = query.Where(i => i.ProjectId == filter.ProjectId.Value);
+
             return query;
         }
 

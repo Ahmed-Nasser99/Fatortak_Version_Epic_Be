@@ -635,6 +635,11 @@ namespace fatortak.Services.AccountingService
                     query = query.Where(je => je.EntryNumber.Contains(filter.EntryNumber));
                 }
 
+                if (filter.ProjectId.HasValue)
+                {
+                    query = query.Where(je => je.ProjectId == filter.ProjectId.Value);
+                }
+
                 var totalCount = await query.CountAsync();
 
                 var journalEntries = await query

@@ -1,4 +1,5 @@
 using fatortak.Common.Enum;
+using System.ComponentModel.DataAnnotations;
 
 namespace fatortak.Dtos
 {
@@ -16,6 +17,24 @@ namespace fatortak.Dtos
         public Guid? InvoiceId { get; set; } // For activated projects
         public bool IsInternal { get; set; }
         public DateTime CreatedAt { get; set; }
+        public decimal TotalInvoiced { get; set; }
+        public decimal TotalExpenses { get; set; }
+        public decimal TotalAdvances { get; set; }
+        public decimal NetProfit { get; set; }
+        public List<ProjectLineDto> ProjectLines { get; set; } = new List<ProjectLineDto>();
+    }
+
+    public class ProjectLineDto
+    {
+        public Guid? Id { get; set; }
+        [Required]
+        public string Description { get; set; }
+        [Range(0.01, double.MaxValue, ErrorMessage = "Quantity must be greater than 0")]
+        public decimal Quantity { get; set; }
+        public string? Unit { get; set; }
+        [Range(0.01, double.MaxValue, ErrorMessage = "UnitPrice must be greater than 0")]
+        public decimal UnitPrice { get; set; }
+        public decimal LineTotal { get; set; }
     }
 
     public class CreateProjectDto
