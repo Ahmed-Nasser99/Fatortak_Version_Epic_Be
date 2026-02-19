@@ -20,6 +20,7 @@ namespace fatortak.Dtos
         public decimal TotalInvoiced { get; set; }
         public decimal TotalExpenses { get; set; }
         public decimal TotalAdvances { get; set; }
+        public decimal TotalCollected { get; set; }
         public decimal NetProfit { get; set; }
         public List<ProjectLineDto> ProjectLines { get; set; } = new List<ProjectLineDto>();
     }

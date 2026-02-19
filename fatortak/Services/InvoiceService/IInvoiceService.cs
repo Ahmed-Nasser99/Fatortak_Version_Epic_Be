@@ -21,5 +21,6 @@ namespace fatortak.Services.InvoiceService
         Task<InstallmentDto?> GetInstallmentByIdAsync(Guid installmentId);
         Task<ServiceResult<bool>> PayInstallmentAsync(Guid installmentId);
         Task<ServiceResult<bool>> UnPayInstallmentAsync(Guid installmentId);
+        Task<ServiceResult<bool>> RecordPaymentAsync(Guid invoiceId, RecordPaymentDto dto);
     }
 }

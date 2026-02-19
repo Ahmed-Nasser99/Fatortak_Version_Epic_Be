@@ -253,6 +253,27 @@ namespace fatortak.Controllers
             }
         }
 
+        [HttpPost("{id}/payments")]
+        public async Task<ActionResult<bool>> RecordPayment(Guid id, [FromBody] RecordPaymentDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                    return BadRequest(ModelState);
+
+                var result = await _invoiceService.RecordPaymentAsync(id, dto);
+                if (!result.Success)
+                    return BadRequest(new { message = result.ErrorMessage });
+
+                return Ok(result.Data);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error recording payment for invoice {InvoiceId}", id);
+                return StatusCode(500, new { message = "Failed to record payment" });
+            }
+        }
+
         [HttpPost("{invoiceId}/status")]
         public async Task<ActionResult<ServiceResult<bool>>> UpdateInvoiceStatus(
             Guid invoiceId,

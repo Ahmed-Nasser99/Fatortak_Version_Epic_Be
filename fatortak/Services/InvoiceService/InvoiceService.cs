@@ -1451,6 +1451,55 @@ namespace fatortak.Services.InvoiceService
             UpdatedAt = company.UpdatedAt
         };
 
+        public async Task<ServiceResult<bool>> RecordPaymentAsync(Guid invoiceId, RecordPaymentDto dto)
+        {
+            try
+            {
+                var invoice = await _context.Invoices
+                    .Include(i => i.Customer)
+                    .FirstOrDefaultAsync(i => i.Id == invoiceId && i.TenantId == TenantId);
+
+                if (invoice == null)
+                    return ServiceResult<bool>.Failure("Invoice not found.");
+
+                if (dto.Amount <= 0)
+                    return ServiceResult<bool>.Failure("Payment amount must be greater than zero.");
+
+                decimal remainingBalance = invoice.Total - (invoice.AmountPaid ?? 0);
+                if (dto.Amount > remainingBalance)
+                    return ServiceResult<bool>.Failure($"Payment amount exceeds the remaining balance of {remainingBalance}.");
+
+                // Update paid amount
+                invoice.AmountPaid = (invoice.AmountPaid ?? 0) + dto.Amount;
+                invoice.UpdatedAt = DateTime.UtcNow;
+
+                // Update status
+                if (invoice.AmountPaid >= invoice.Total)
+                {
+                    invoice.Status = InvoiceStatus.Paid.ToString();
+                    invoice.PaidAt = DateTime.UtcNow;
+                    invoice.Customer.LastEngagementDate = DateTime.UtcNow;
+                }
+                else
+                {
+                    invoice.Status = InvoiceStatus.PartialPaid.ToString();
+                }
+
+                // Save changes to invoice
+                await _context.SaveChangesAsync();
+
+                // Register payment (Transaction + Accounting Entry)
+                await RegisterPaymentAsync(invoice, dto.Amount, dto.PaymentMethod);
+
+                return ServiceResult<bool>.SuccessResult(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error recording partial payment for invoice {InvoiceId}", invoiceId);
+                return ServiceResult<bool>.Failure("Failed to record payment.");
+            }
+        }
+
         private async Task RegisterPaymentAsync(Invoice invoice, decimal amount, string? paymentMethod = "Cash")
         {
             if (amount <= 0) return;

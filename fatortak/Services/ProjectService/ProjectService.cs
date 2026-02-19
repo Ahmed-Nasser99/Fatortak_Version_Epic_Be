@@ -143,10 +143,17 @@ namespace fatortak.Services.ProjectService
                 if (project == null)
                     return ServiceResult<ProjectDto>.Failure("Project not found");
 
+                ProjectStatus oldStatus = project.Status;
                 project.Status = status;
                 project.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
+
+                // If activated, generate invoice only if not already exists
+                if (status == ProjectStatus.Active && oldStatus != ProjectStatus.Active)
+                {
+                    await GenerateProjectInvoiceAsync(project.Id);
+                }
 
                 return ServiceResult<ProjectDto>.SuccessResult(await MapToDtoWithFinancialsAsync(project));
             }
@@ -251,73 +258,7 @@ namespace fatortak.Services.ProjectService
                 // 5) If ActivateImmediately
                 if (command.ActivateImmediately)
                 {
-                    var company = await _context.Companies.FirstOrDefaultAsync(c => c.TenantId == TenantId);
-                    if (company == null)
-                        return ServiceResult<ProjectDto>.Failure("Company settings not found");
-
-                    var lastInvoice = await _context.Invoices
-                        .Where(i => i.TenantId == TenantId)
-                        .OrderByDescending(i => i.CreatedAt)
-                        .FirstOrDefaultAsync();
-
-                    // Generate invoice number (simple implementation matching InvoiceService)
-                    var prefix = company.InvoicePrefix ?? "INV";
-                    var nextNumber = 1;
-                    if (lastInvoice != null && lastInvoice.InvoiceNumber.Contains("-"))
-                    {
-                        var parts = lastInvoice.InvoiceNumber.Split('-');
-                        if (parts.Length > 1 && int.TryParse(parts[1], out int lastNum))
-                            nextNumber = lastNum + 1;
-                    }
-                    var invoiceNumber = $"{prefix}-{nextNumber:D4}";
-
-                    // a) Create Invoice
-                    var invoice = new Invoice
-                    {
-                        TenantId = TenantId,
-                        InvoiceNumber = invoiceNumber,
-                        CustomerId = command.ClientId,
-                        UserId = userId,
-                        IssueDate = DateTime.UtcNow.Date,
-                        DueDate = DateTime.UtcNow.Date.AddDays(30), // Default 30 days
-                        Currency = company.Currency,
-                        InvoiceType = InvoiceTypes.Sell.ToString(),
-                        Notes = project.Notes,
-                        Terms = project.PaymentTerms,
-                        ProjectId = project.Id,
-                        Status = InvoiceStatus.Posted.ToString(),
-                        Subtotal = project.ContractValue,
-                        VatAmount = 0, // Simplified, can be extended
-                        Total = project.ContractValue,
-                        CreatedAt = DateTime.UtcNow
-                    };
-
-                    _context.Invoices.Add(invoice);
-                    await _context.SaveChangesAsync();
-
-                    // Create Invoice lines from Project lines
-                    foreach (var pl in project.ProjectLines)
-                    {
-                        var invoiceItem = new InvoiceItem
-                        {
-                            TenantId = TenantId,
-                            InvoiceId = invoice.Id,
-                            Description = pl.Description,
-                            Quantity = (int)pl.Quantity,
-                            UnitPrice = pl.UnitPrice,
-                            VatRate = 0,
-                            LineTotal = pl.LineTotal
-                        };
-                        _context.InvoiceItems.Add(invoiceItem);
-                    }
-                    await _context.SaveChangesAsync();
-
-                    // b) Create Journal Entry
-                    var posted = await _accountingPostingService.PostInvoiceAsync(invoice.Id);
-                    if (!posted)
-                        throw new Exception("Failed to post invoice to accounting");
-
-                    invoiceId = invoice.Id;
+                    invoiceId = await GenerateProjectInvoiceAsync(project.Id);
                 }
 
                 await transaction.CommitAsync();
@@ -335,6 +276,99 @@ namespace fatortak.Services.ProjectService
                 _logger.LogError(ex, "Error creating project with contract");
                 return ServiceResult<ProjectDto>.Failure("Failed to create project with contract setup");
             }
+        }
+
+        private async Task<Guid?> GenerateProjectInvoiceAsync(Guid projectId)
+        {
+            var project = await _context.Projects
+                .Include(p => p.ProjectLines)
+                .FirstOrDefaultAsync(p => p.Id == projectId && p.TenantId == TenantId);
+
+            if (project == null) return null;
+
+            // Check if invoice already exists to prevent duplicate generation
+            var existingInvoice = await _context.Invoices
+                .FirstOrDefaultAsync(i => i.ProjectId == projectId && i.TenantId == TenantId);
+
+            if (existingInvoice != null)
+            {
+                _logger.LogInformation("Invoice already exists for project {ProjectId}, skipping duplicate generation.", projectId);
+                return existingInvoice.Id;
+            }
+
+            var company = await _context.Companies.FirstOrDefaultAsync(c => c.TenantId == TenantId);
+            if (company == null)
+            {
+                _logger.LogWarning("Company settings not found, cannot generate invoice for project {ProjectId}", projectId);
+                return null;
+            }
+
+            var lastInvoice = await _context.Invoices
+                .Where(i => i.TenantId == TenantId)
+                .OrderByDescending(i => i.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            // Generate invoice number
+            var prefix = company.InvoicePrefix ?? "INV";
+            var nextNumber = 1;
+            if (lastInvoice != null && lastInvoice.InvoiceNumber.Contains("-"))
+            {
+                var parts = lastInvoice.InvoiceNumber.Split('-');
+                if (parts.Length > 1 && int.TryParse(parts[1], out int lastNum))
+                    nextNumber = lastNum + 1;
+            }
+            var invoiceNumber = $"{prefix}-{nextNumber:D4}";
+
+            var userIdString = UserHelper.GetUserId();
+            var userId = !string.IsNullOrEmpty(userIdString) ? new Guid(userIdString) : Guid.Empty;
+
+            // a) Create Invoice
+            var invoice = new Invoice
+            {
+                TenantId = TenantId,
+                InvoiceNumber = invoiceNumber,
+                CustomerId = project.CustomerId,
+                UserId = userId,
+                IssueDate = DateTime.UtcNow.Date,
+                DueDate = DateTime.UtcNow.Date.AddDays(30),
+                Currency = company.Currency,
+                InvoiceType = InvoiceTypes.Sell.ToString(),
+                Notes = project.Notes,
+                Terms = project.PaymentTerms,
+                ProjectId = project.Id,
+                Status = InvoiceStatus.Posted.ToString(),
+                Subtotal = project.ContractValue,
+                VatAmount = 0,
+                Total = project.ContractValue,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.Invoices.Add(invoice);
+            await _context.SaveChangesAsync();
+
+            // Create Invoice lines from Project lines
+            foreach (var pl in project.ProjectLines)
+            {
+                var invoiceItem = new InvoiceItem
+                {
+                    TenantId = TenantId,
+                    InvoiceId = invoice.Id,
+                    Description = pl.Description,
+                    Quantity = (int)pl.Quantity,
+                    UnitPrice = pl.UnitPrice,
+                    VatRate = 0,
+                    LineTotal = pl.LineTotal
+                };
+                _context.InvoiceItems.Add(invoiceItem);
+            }
+            await _context.SaveChangesAsync();
+
+            // b) Post to Accounting
+            var posted = await _accountingPostingService.PostInvoiceAsync(invoice.Id);
+            if (!posted)
+                _logger.LogError("Failed to auto-post invoice {InvoiceId} for project {ProjectId} to accounting", invoice.Id, projectId);
+
+            return invoice.Id;
         }
 
         public async Task<ServiceResult<bool>> DeleteProjectAsync(Guid projectId)
@@ -399,10 +433,19 @@ namespace fatortak.Services.ProjectService
                 .SumAsync(e => (decimal?)e.Total) ?? 0;
 
             dto.TotalAdvances = await _context.JournalEntryLines
-                .Where(l => l.JournalEntry.ProjectId == project.Id && l.JournalEntry.TenantId == TenantId && l.JournalEntry.ReferenceType == JournalEntryReferenceType.Payment)
+                .Where(l => l.JournalEntry.ProjectId == project.Id && 
+                            l.JournalEntry.TenantId == TenantId && 
+                            l.JournalEntry.ReferenceType == JournalEntryReferenceType.Manual)
                 .SumAsync(l => (decimal?)l.Debit) ?? 0;
 
-            dto.NetProfit = dto.TotalInvoiced - dto.TotalExpenses - dto.TotalAdvances;
+            dto.TotalCollected = await _context.JournalEntryLines
+                .Where(l => l.JournalEntry.ProjectId == project.Id && 
+                            l.JournalEntry.TenantId == TenantId && 
+                            l.JournalEntry.ReferenceType == JournalEntryReferenceType.Payment &&
+                            l.Credit > 0)
+                .SumAsync(l => (decimal?)l.Credit) ?? 0;
+
+            dto.NetProfit = dto.TotalInvoiced - dto.TotalExpenses;
 
             return dto;
         }
