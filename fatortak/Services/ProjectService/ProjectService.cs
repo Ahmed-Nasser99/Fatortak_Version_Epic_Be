@@ -381,6 +381,19 @@ namespace fatortak.Services.ProjectService
                 if (project == null)
                     return ServiceResult<bool>.Failure("Project not found");
 
+                // Check for financial dependencies
+                var hasInvoices = await _context.Invoices.AnyAsync(i => i.ProjectId == projectId);
+                if (hasInvoices)
+                    return ServiceResult<bool>.Failure("Cannot delete project with existing invoices. Please delete the invoices first.");
+
+                var hasExpenses = await _context.Expenses.AnyAsync(e => e.ProjectId == projectId);
+                if (hasExpenses)
+                    return ServiceResult<bool>.Failure("Cannot delete project with linked expenses. Please reassign or delete the expenses first.");
+
+                var hasJournalEntries = await _context.JournalEntryLines.AnyAsync(l => l.JournalEntry.ProjectId == projectId);
+                if (hasJournalEntries)
+                    return ServiceResult<bool>.Failure("Cannot delete project with linked accounting journal entries.");
+
                 _context.Projects.Remove(project);
                 await _context.SaveChangesAsync();
 
@@ -388,8 +401,8 @@ namespace fatortak.Services.ProjectService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deleting project");
-                return ServiceResult<bool>.Failure("Failed to delete project");
+                _logger.LogError(ex, "Error deleting project {ProjectId}", projectId);
+                return ServiceResult<bool>.Failure("Failed to delete project due to a database constraint or system error.");
             }
         }
 
