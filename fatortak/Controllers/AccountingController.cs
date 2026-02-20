@@ -215,7 +215,7 @@ namespace fatortak.Controllers
         /// Create a manual journal entry
         /// </summary>
         [HttpPost("journal-entries")]
-        public async Task<ActionResult<ServiceResult<JournalEntryDto>>> CreateJournalEntry([FromBody] JournalEntryCreateDto dto)
+        public async Task<ActionResult<ServiceResult<JournalEntryDto>>> CreateJournalEntry([FromForm] JournalEntryCreateDto dto)
         {
             try
             {

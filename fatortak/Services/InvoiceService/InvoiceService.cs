@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using System.IO;
 using fatortak.Common.Enum;
 using fatortak.Context;
 using fatortak.Dtos.Company;
@@ -17,6 +20,7 @@ namespace fatortak.Services.InvoiceService
         private readonly ApplicationDbContext _context;
         private readonly ILogger<InvoiceService> _logger;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IWebHostEnvironment _hostingEnvironment;
         private readonly ITransactionService _transactionService;
         private readonly IAccountingPostingService _accountingPostingService;
         private readonly IAccountingService _accountingService;
@@ -25,6 +29,7 @@ namespace fatortak.Services.InvoiceService
             ApplicationDbContext context,
             ILogger<InvoiceService> logger,
             IHttpContextAccessor httpContextAccessor,
+            IWebHostEnvironment hostingEnvironment,
             ITransactionService transactionService,
             IAccountingPostingService accountingPostingService,
             IAccountingService accountingService)
@@ -32,6 +37,7 @@ namespace fatortak.Services.InvoiceService
             _context = context;
             _logger = logger;
             _httpContextAccessor = httpContextAccessor;
+            _hostingEnvironment = hostingEnvironment;
             _transactionService = transactionService;
             _accountingPostingService = accountingPostingService;
             _accountingService = accountingService;
@@ -306,7 +312,8 @@ namespace fatortak.Services.InvoiceService
                     Benefits = dto.Benefits.GetValueOrDefault(),
                     BranchId = dto.BranchId,
                     ProjectId = dto.ProjectId,
-                    Status = dto.Status ?? InvoiceStatus.Draft.ToString() // Always start as draft
+                    Status = dto.Status ?? InvoiceStatus.Draft.ToString(), // Always start as draft
+                    AttachmentUrl = dto.AttachmentUrl
                 };
 
                 // Process items WITHOUT updating inventory yet
@@ -686,9 +693,19 @@ namespace fatortak.Services.InvoiceService
                 invoice.Notes = dto.Notes ?? invoice.Notes;
                 invoice.Terms = dto.Terms ?? invoice.Terms;
                 invoice.Status = dto.Status ?? invoice.Status;
+                if (dto.File != null && dto.File.Length > 0)
+                {
+                    if (!string.IsNullOrEmpty(invoice.AttachmentUrl))
+                    {
+                        DeleteFile(invoice.AttachmentUrl);
+                    }
+                    dto.AttachmentUrl = await SaveFile(dto.File, "invoices");
+                }
+
                 invoice.InvoiceType = dto.InvoiceType ?? invoice.InvoiceType;
                 invoice.BranchId = dto.BranchId ?? invoice.BranchId;
                 invoice.ProjectId = dto.ProjectId ?? invoice.ProjectId;
+                invoice.AttachmentUrl = dto.AttachmentUrl ?? invoice.AttachmentUrl;
                 invoice.UpdatedAt = DateTime.UtcNow;
 
                 // Handle benefits if provided
@@ -1397,7 +1414,8 @@ namespace fatortak.Services.InvoiceService
                 ProjectId = invoice.ProjectId,
                 ProjectName = invoice.Project?.Name,
                 CreatedAt = invoice.CreatedAt,
-                PaidAt = invoice.PaidAt
+                PaidAt = invoice.PaidAt,
+                AttachmentUrl = invoice.AttachmentUrl
             };
         }
 
@@ -1432,7 +1450,8 @@ namespace fatortak.Services.InvoiceService
             Amount = installment.Amount,
             DueDate = installment.DueDate,
             Status = installment.Status,
-            PaidAt = installment.PaidAt
+            PaidAt = installment.PaidAt,
+            AttachmentUrl = installment.AttachmentUrl
         };
         private CompanyDto MapToDto(Company company) => new()
         {
@@ -1455,6 +1474,11 @@ namespace fatortak.Services.InvoiceService
         {
             try
             {
+                if (dto.File != null && dto.File.Length > 0)
+                {
+                    dto.AttachmentUrl = await SaveFile(dto.File, "payments");
+                }
+
                 var invoice = await _context.Invoices
                     .Include(i => i.Customer)
                     .FirstOrDefaultAsync(i => i.Id == invoiceId && i.TenantId == TenantId);
@@ -1489,7 +1513,7 @@ namespace fatortak.Services.InvoiceService
                 await _context.SaveChangesAsync();
 
                 // Register payment (Transaction + Accounting Entry)
-                await RegisterPaymentAsync(invoice, dto.Amount, dto.PaymentMethod);
+                await RegisterPaymentAsync(invoice, dto.Amount, dto.PaymentMethod, dto.AttachmentUrl);
 
                 return ServiceResult<bool>.SuccessResult(true);
             }
@@ -1500,7 +1524,7 @@ namespace fatortak.Services.InvoiceService
             }
         }
 
-        private async Task RegisterPaymentAsync(Invoice invoice, decimal amount, string? paymentMethod = "Cash")
+        private async Task RegisterPaymentAsync(Invoice invoice, decimal amount, string? paymentMethod = "Cash", string? attachmentUrl = null)
         {
             if (amount <= 0) return;
 
@@ -1523,6 +1547,7 @@ namespace fatortak.Services.InvoiceService
                 ReferenceType = "Invoice",
                 Description = $"{desc} for Invoice #{invoice.InvoiceNumber}",
                 PaymentMethod = paymentMethod ?? "Cash",
+                AttachmentUrl = attachmentUrl,
                 CreatedBy = userId,
                 BranchId = invoice.BranchId,
                 ProjectId = invoice.ProjectId
@@ -1561,6 +1586,34 @@ namespace fatortak.Services.InvoiceService
         {
             var tenant = _httpContextAccessor.HttpContext?.Items["CurrentTenant"] as Tenant;
             return tenant?.Id ?? Guid.Empty;
+        }
+
+        private async Task<string> SaveFile(IFormFile file, string subFolder)
+        {
+            var uploadsFolder = Path.Combine(_hostingEnvironment.WebRootPath, "uploads", subFolder);
+            if (!Directory.Exists(uploadsFolder))
+            {
+                Directory.CreateDirectory(uploadsFolder);
+            }
+
+            var uniqueFileName = Guid.NewGuid().ToString() + Path.GetExtension(file.FileName);
+            var filePath = Path.Combine(uploadsFolder, uniqueFileName);
+
+            using (var fileStream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(fileStream);
+            }
+
+            return Path.Combine("uploads", subFolder, uniqueFileName);
+        }
+
+        private void DeleteFile(string filePath)
+        {
+            var fullPath = Path.Combine(_hostingEnvironment.WebRootPath, filePath);
+            if (File.Exists(fullPath))
+            {
+                File.Delete(fullPath);
+            }
         }
     }
 }

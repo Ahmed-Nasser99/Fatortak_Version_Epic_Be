@@ -17,6 +17,8 @@ namespace fatortak.Dtos.Accounting
         [Required]
         [MinLength(2, ErrorMessage = "A journal entry must have at least 2 lines")]
         public List<JournalEntryLineCreateDto> Lines { get; set; } = new List<JournalEntryLineCreateDto>();
+        public string? AttachmentUrl { get; set; }
+        public IFormFile? File { get; set; }
     }
 
     /// <summary>

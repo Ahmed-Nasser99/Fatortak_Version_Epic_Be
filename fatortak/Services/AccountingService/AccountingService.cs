@@ -4,6 +4,9 @@ using fatortak.Dtos.Accounting;
 using fatortak.Dtos.Shared;
 using fatortak.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using System.IO;
 
 namespace fatortak.Services.AccountingService
 {
@@ -15,15 +18,18 @@ namespace fatortak.Services.AccountingService
     {
         private readonly ApplicationDbContext _context;
         private readonly ILogger<AccountingService> _logger;
+        private readonly IWebHostEnvironment _hostingEnvironment;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
         public AccountingService(
             ApplicationDbContext context,
             ILogger<AccountingService> logger,
+            IWebHostEnvironment hostingEnvironment,
             IHttpContextAccessor httpContextAccessor)
         {
             _context = context;
             _logger = logger;
+            _hostingEnvironment = hostingEnvironment;
             _httpContextAccessor = httpContextAccessor;
         }
 
@@ -515,6 +521,11 @@ namespace fatortak.Services.AccountingService
                     return ServiceResult<JournalEntryDto>.Failure($"Journal entry is not balanced. Debit: {totalDebit}, Credit: {totalCredit}");
                 }
 
+                if (dto.File != null && dto.File.Length > 0)
+                {
+                    dto.AttachmentUrl = await SaveFile(dto.File, "journal_entries");
+                }
+
                 // Generate entry number
                 var entryNumber = await GenerateEntryNumberAsync();
 
@@ -527,6 +538,7 @@ namespace fatortak.Services.AccountingService
                     ReferenceType = JournalEntryReferenceType.Manual,
                     Description = dto.Description,
                     IsPosted = false,
+                    AttachmentUrl = dto.AttachmentUrl,
                     CreatedAt = DateTime.UtcNow,
                     CreatedBy = CurrentUserId
                 };
@@ -1224,7 +1236,8 @@ namespace fatortak.Services.AccountingService
                 ProjectName = journalEntry.Project?.Name,
                 Lines = journalEntry.Lines.Select(MapToDto).ToList(),
                 TotalDebit = journalEntry.TotalDebit,
-                TotalCredit = journalEntry.TotalCredit
+                TotalCredit = journalEntry.TotalCredit,
+                AttachmentUrl = journalEntry.AttachmentUrl
             };
         }
 
@@ -1273,6 +1286,33 @@ namespace fatortak.Services.AccountingService
         }
 
         #endregion
+        private async Task<string> SaveFile(IFormFile file, string subFolder)
+        {
+            var uploadsFolder = Path.Combine(_hostingEnvironment.WebRootPath, "uploads", subFolder);
+            if (!Directory.Exists(uploadsFolder))
+            {
+                Directory.CreateDirectory(uploadsFolder);
+            }
+
+            var uniqueFileName = Guid.NewGuid().ToString() + Path.GetExtension(file.FileName);
+            var filePath = Path.Combine(uploadsFolder, uniqueFileName);
+
+            using (var fileStream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(fileStream);
+            }
+
+            return Path.Combine("uploads", subFolder, uniqueFileName);
+        }
+
+        private void DeleteFile(string filePath)
+        {
+            var fullPath = Path.Combine(_hostingEnvironment.WebRootPath, filePath);
+            if (File.Exists(fullPath))
+            {
+                File.Delete(fullPath);
+            }
+        }
     }
 }
 

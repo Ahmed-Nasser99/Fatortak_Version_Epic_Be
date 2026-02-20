@@ -72,7 +72,7 @@ namespace fatortak.Controllers
 
         [HttpPost]
         public async Task<ActionResult<ServiceResult<InvoiceDto>>> CreateInvoice(
-            [FromBody] InvoiceCreateDto dto)
+            [FromForm] InvoiceCreateDto dto)
         {
             try
             {
@@ -153,7 +153,7 @@ namespace fatortak.Controllers
         [HttpPost("update/{invoiceId}")]
         public async Task<ActionResult<ServiceResult<InvoiceDto>>> UpdateInvoice(
             Guid invoiceId,
-            [FromBody] InvoiceUpdateDto dto)
+            [FromForm] InvoiceUpdateDto dto)
         {
             try
             {
@@ -254,7 +254,7 @@ namespace fatortak.Controllers
         }
 
         [HttpPost("{id}/payments")]
-        public async Task<ActionResult<bool>> RecordPayment(Guid id, [FromBody] RecordPaymentDto dto)
+        public async Task<ActionResult<bool>> RecordPayment(Guid id, [FromForm] RecordPaymentDto dto)
         {
             try
             {

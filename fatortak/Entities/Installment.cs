@@ -11,6 +11,7 @@ namespace fatortak.Entities
         public decimal Amount { get; set; }        
         public string Status { get; set; } = InstallmentStatus.Unpaid.ToString();
         public DateTime? PaidAt { get; set; }
+        public string? AttachmentUrl { get; set; }
 
         public Invoice Invoice { get; set; }
     }

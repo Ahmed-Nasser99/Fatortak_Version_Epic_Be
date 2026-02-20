@@ -24,6 +24,7 @@ namespace fatortak.Dtos.Invoice
         public decimal? Benefits { get; set; } = 0; // For Only Installment Invoices
 
         public List<InstallmentCreateDto>? Installments { get; set; }
-
+        public string? AttachmentUrl { get; set; }
+        public IFormFile? File { get; set; }
     }
 }

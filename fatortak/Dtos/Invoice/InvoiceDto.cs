@@ -34,6 +34,7 @@ namespace fatortak.Dtos.Invoice
         public decimal? Benefits { get; set; }
         public bool hasInstallments { get; set; } = false;
         public IEnumerable<InstallmentDto> Installments { get; set; } = new List<InstallmentDto>();
+        public string? AttachmentUrl { get; set; }
         public decimal RemainingAmount => Total - (AmountPaid ?? 0);
     }
 }

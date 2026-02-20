@@ -8,5 +8,6 @@
         public DateTime DueDate { get; set; }
         public string Status { get; set; }
         public DateTime? PaidAt { get; set; }
+        public string? AttachmentUrl { get; set; }
     }
 }

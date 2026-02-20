@@ -27,6 +27,7 @@ namespace fatortak.Dtos.Accounting
         public List<JournalEntryLineDto> Lines { get; set; } = new List<JournalEntryLineDto>();
         public decimal TotalDebit { get; set; }
         public decimal TotalCredit { get; set; }
+        public string? AttachmentUrl { get; set; }
     }
 }
 

@@ -17,6 +17,8 @@
         public int? NumberOfInstallments { get; set; }
         public decimal? Benefits { get; set; }
         public List<InstallmentUpdateInvoiceDto>? Installments { get; set; }
+        public string? AttachmentUrl { get; set; }
+        public IFormFile? File { get; set; }
     }
     public class InstallmentUpdateInvoiceDto
     {

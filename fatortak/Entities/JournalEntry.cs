@@ -87,6 +87,7 @@ namespace fatortak.Entities
         /// Timestamp when the entry was last updated
         /// </summary>
         public DateTime? UpdatedAt { get; set; }
+        public string? AttachmentUrl { get; set; }
 
         /// <summary>
         /// Reference to reversing entry (if this entry reverses another)

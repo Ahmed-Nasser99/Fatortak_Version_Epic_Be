@@ -22,7 +22,16 @@ namespace fatortak.Entities
         public string? Terms { get; set; }
         public string InvoiceType { get; set; } = InvoiceTypes.Sell.ToString();
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        /// <summary>
+        /// Timestamp when the entry was last updated
+        /// </summary>
         public DateTime? UpdatedAt { get; set; }
+
+        /// <summary>
+        /// URL for the attached file
+        /// </summary>
+        public string? AttachmentUrl { get; set; }
+
         public DateTime? SentAt { get; set; }
         public DateTime? PaidAt { get; set; }
         public decimal? DownPayment { get; set; }   // الدفعة المقدمة (Partial Payment)
@@ -40,6 +49,5 @@ namespace fatortak.Entities
         public Project? Project { get; set; }
 
         public bool RemindersCreated { get; set; } = false;
-
     }
 }
