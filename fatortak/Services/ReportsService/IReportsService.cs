@@ -8,12 +8,12 @@ namespace fatortak.Services.ReportsService
 {
     public interface IReportsService
     {
-        Task<ServiceResult<ReportStatsDto>> GetReportStatsAsync(string period);
-        Task<ServiceResult<List<RevenueDataPointDto>>> GetRevenueDataAsync(string period);
-        Task<ServiceResult<List<TopCustomerDto>>> GetTopCustomersAsync(string period, int topCount = 5);
-        Task<ServiceResult<List<TopSupplierDto>>> GetTopSuppliersAsync(string period, int topCount = 5);
-        Task<ServiceResult<CashFlowDto>> GetCashFlowAsync(string period);
-        Task<ServiceResult<ProfitAnalysisDto>> GetProfitAnalysisAsync(string period);
+        Task<ServiceResult<ReportStatsDto>> GetReportStatsAsync(string period, Guid? projectId = null);
+        Task<ServiceResult<List<RevenueDataPointDto>>> GetRevenueDataAsync(string period, Guid? projectId = null);
+        Task<ServiceResult<List<TopCustomerDto>>> GetTopCustomersAsync(string period, int topCount = 5, Guid? projectId = null);
+        Task<ServiceResult<List<TopSupplierDto>>> GetTopSuppliersAsync(string period, int topCount = 5, Guid? projectId = null);
+        Task<ServiceResult<CashFlowDto>> GetCashFlowAsync(string period, Guid? projectId = null);
+        Task<ServiceResult<ProfitAnalysisDto>> GetProfitAnalysisAsync(string period, Guid? projectId = null);
         Task<ServiceResult<PagedResponseDto<InvoiceDto>>> GetSalesReport(
         InvoiceFilterDto filter, PaginationDto pagination);
         Task<ServiceResult<PagedResponseDto<TransactionDto>>> GetExpensesReport(

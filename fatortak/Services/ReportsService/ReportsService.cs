@@ -30,47 +30,48 @@ namespace fatortak.Services.ReportsService
             ((Tenant)_httpContextAccessor.HttpContext.Items["CurrentTenant"]).Id;
 
         #region Report Stats
-        public async Task<ServiceResult<ReportStatsDto>> GetReportStatsAsync(string period = "month")
+        public async Task<ServiceResult<ReportStatsDto>> GetReportStatsAsync(string period = "month", Guid? projectId = null)
         {
             try
             {
                 var (startDate, endDate) = GetDateRange(period);
 
-                // ✅ Include Paid + PartialPaid revenues
-                var revenue = await _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.InvoiceType == InvoiceTypes.Sell.ToString() &&
-                                i.IssueDate >= startDate && i.IssueDate <= endDate &&
-                                (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()))
-                    .SumAsync(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue
-                        ? i.AmountPaid.Value
-                        : i.Total);
+                // Financial stats based on account balances
+                var linesQuery = _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date >= startDate &&
+                                  jel.JournalEntry.Date <= endDate &&
+                                  (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId));
 
-                // ✅ Expenses (Paid + PartialPaid)
-                var expenses = await _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.InvoiceType == InvoiceTypes.Buy.ToString() &&
-                                i.IssueDate >= startDate && i.IssueDate <= endDate &&
-                                (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()))
-                    .SumAsync(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue
-                        ? i.AmountPaid.Value
-                        : i.Total);
+                // ✅ Revenue (AccountType.Revenue)
+                var revenue = await linesQuery
+                    .Where(jel => jel.Account.AccountType == AccountType.Revenue)
+                    .SumAsync(jel => jel.Credit - jel.Debit);
 
-                // ✅ Salaries + Other Expenses
-                var totalSalaries = await _context.Employees
-                    .Where(e => e.TenantId == _tenantId)
-                    .SumAsync(i => i.Salary);
+                // ✅ Expenses (AccountType.Expense)
+                var totalExpenses = await linesQuery
+                    .Where(jel => jel.Account.AccountType == AccountType.Expense)
+                    .SumAsync(jel => jel.Debit - jel.Credit);
 
-                var otherExpenses = await _context.Expenses
-                    .Where(e => e.TenantId == _tenantId &&
-                                e.Date >= DateOnly.FromDateTime(startDate) &&
-                                e.Date <= DateOnly.FromDateTime(endDate))
-                    .SumAsync(e => e.Total);
+                // ✅ AR (Accounts Receivable - Code 1200)
+                var receivables = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date <= endDate &&
+                                  (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId) &&
+                                  jel.Account.AccountCode.StartsWith("1200"))
+                    .SumAsync(jel => jel.Debit - jel.Credit);
 
                 var invoices = await _context.Invoices
                     .CountAsync(i => i.TenantId == _tenantId &&
                                      i.IssueDate >= startDate &&
-                                     i.IssueDate <= endDate);
+                                     i.IssueDate <= endDate &&
+                                     (!projectId.HasValue || i.ProjectId == projectId));
 
                 var customers = await _context.Customers
                     .CountAsync(c => c.TenantId == _tenantId && !c.IsSupplier && c.IsActive && !c.IsDeleted);
@@ -81,12 +82,11 @@ namespace fatortak.Services.ReportsService
                 return ServiceResult<ReportStatsDto>.SuccessResult(new ReportStatsDto
                 {
                     TotalRevenue = revenue,
-                    TotalExpenses = expenses + otherExpenses + totalSalaries.GetValueOrDefault(),
-                    NetIncome = revenue - (expenses + otherExpenses + totalSalaries.GetValueOrDefault()),
+                    TotalExpenses = totalExpenses,
+                    NetIncome = revenue - totalExpenses,
                     TotalInvoices = invoices,
                     ActiveCustomers = customers,
-                    ActiveSuppliers = suppliers,
-                    TotalSalaries = totalSalaries
+                    ActiveSuppliers = suppliers
                 });
             }
             catch (Exception ex)
@@ -98,41 +98,45 @@ namespace fatortak.Services.ReportsService
         #endregion
 
         #region Revenue Data
-        public async Task<ServiceResult<List<RevenueDataPointDto>>> GetRevenueDataAsync(string period = "month")
+        public async Task<ServiceResult<List<RevenueDataPointDto>>> GetRevenueDataAsync(string period = "month", Guid? projectId = null)
         {
             try
             {
                 var (startDate, endDate) = GetDateRange(period);
 
-                var query = _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.InvoiceType == InvoiceTypes.Sell.ToString() &&
-                                i.IssueDate >= startDate && i.IssueDate <= endDate &&
-                                (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()));
+                var query = _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date >= startDate &&
+                                  jel.JournalEntry.Date <= endDate &&
+                                  (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId) &&
+                                  jel.Account.AccountType == AccountType.Revenue);
 
                 List<RevenueDataPointDto> data;
 
                 if (period == "month")
                 {
                     data = await query
-                        .GroupBy(i => i.IssueDate.Date)
+                        .GroupBy(jel => jel.JournalEntry.Date)
                         .Select(g => new RevenueDataPointDto
                         {
                             Period = g.Key.ToString("dd MMM"),
-                            Revenue = g.Sum(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue ? i.AmountPaid.Value : i.Total),
-                            Orders = g.Count()
+                            Revenue = g.Sum(jel => jel.Credit - jel.Debit),
+                            Orders = g.Select(jel => jel.JournalEntryId).Distinct().Count()
                         })
                         .ToListAsync();
                 }
                 else
                 {
                     data = await query
-                        .GroupBy(i => new { i.IssueDate.Year, i.IssueDate.Month })
+                        .GroupBy(jel => new { jel.JournalEntry.Date.Year, jel.JournalEntry.Date.Month })
                         .Select(g => new RevenueDataPointDto
                         {
                             Period = CultureInfo.CurrentCulture.DateTimeFormat.GetAbbreviatedMonthName(g.Key.Month),
-                            Revenue = g.Sum(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue ? i.AmountPaid.Value : i.Total),
-                            Orders = g.Count()
+                            Revenue = g.Sum(jel => jel.Credit - jel.Debit),
+                            Orders = g.Select(jel => jel.JournalEntryId).Distinct().Count()
                         })
                         .ToListAsync();
                 }
@@ -148,7 +152,7 @@ namespace fatortak.Services.ReportsService
         #endregion
 
         #region Top Customers
-        public async Task<ServiceResult<List<TopCustomerDto>>> GetTopCustomersAsync(string period = "month", int topCount = 5)
+        public async Task<ServiceResult<List<TopCustomerDto>>> GetTopCustomersAsync(string period = "month", int topCount = 5, Guid? projectId = null)
         {
             try
             {
@@ -158,6 +162,7 @@ namespace fatortak.Services.ReportsService
                     .Where(i => i.TenantId == _tenantId &&
                                 i.InvoiceType == InvoiceTypes.Sell.ToString() &&
                                 i.IssueDate >= startDate && i.IssueDate <= endDate &&
+                                (!projectId.HasValue || i.ProjectId == projectId) &&
                                 (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()))
                     .GroupBy(i => new { i.CustomerId, i.Customer.Name })
                     .Select(g => new TopCustomerDto
@@ -184,7 +189,7 @@ namespace fatortak.Services.ReportsService
         #endregion
 
         #region Top Suppliers
-        public async Task<ServiceResult<List<TopSupplierDto>>> GetTopSuppliersAsync(string period = "month", int topCount = 5)
+        public async Task<ServiceResult<List<TopSupplierDto>>> GetTopSuppliersAsync(string period = "month", int topCount = 5, Guid? projectId = null)
         {
             try
             {
@@ -194,6 +199,7 @@ namespace fatortak.Services.ReportsService
                     .Where(i => i.TenantId == _tenantId &&
                                 i.InvoiceType == InvoiceTypes.Buy.ToString() &&
                                 i.IssueDate >= startDate && i.IssueDate <= endDate &&
+                                (!projectId.HasValue || i.ProjectId == projectId) &&
                                 (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()))
                     .GroupBy(i => new { i.CustomerId, i.Customer.Name })
                     .Select(g => new TopSupplierDto
@@ -219,51 +225,53 @@ namespace fatortak.Services.ReportsService
         #endregion
 
         #region Cash Flow
-        public async Task<ServiceResult<CashFlowDto>> GetCashFlowAsync(string period = "month")
+        public async Task<ServiceResult<CashFlowDto>> GetCashFlowAsync(string period = "month", Guid? projectId = null)
         {
             try
             {
                 var (startDate, endDate) = GetDateRange(period);
 
-                var cashIn = await _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.InvoiceType == InvoiceTypes.Sell.ToString() &&
-                                i.IssueDate >= startDate && i.IssueDate <= endDate &&
-                                (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()))
-                    .SumAsync(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue ? i.AmountPaid.Value : i.Total);
+                // Financial lines for the period
+                var linesQuery = _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date >= startDate &&
+                                  jel.JournalEntry.Date <= endDate &&
+                                  (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId));
 
-                var cashOut = await _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.InvoiceType == InvoiceTypes.Buy.ToString() &&
-                                i.IssueDate >= startDate && i.IssueDate <= endDate &&
-                                (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()))
-                    .SumAsync(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue ? i.AmountPaid.Value : i.Total);
+                // ✅ Cash In = Collections (Credits to AR) + Direct Cash Sales (Debits to Cash from Revenue)
+                var cashIn = await linesQuery
+                    .Where(jel => jel.Account.AccountCode.StartsWith("1200"))
+                    .SumAsync(jel => jel.Credit);
 
-                var otherExpenses = await _context.Expenses
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.Date >= DateOnly.FromDateTime(startDate) &&
-                                i.Date <= DateOnly.FromDateTime(endDate))
-                    .SumAsync(i => i.Total);
+                // ✅ Cash Out = Payments (Debits to AP) + Direct Cash Expenses (Credits to Cash from Expense)
+                var cashOut = await linesQuery
+                    .Where(jel => jel.Account.AccountCode.StartsWith("2100"))
+                    .SumAsync(jel => jel.Debit);
 
-                var totalSalaries = await _context.Employees
-                   .Where(e => e.TenantId == _tenantId)
-                   .SumAsync(i => i.Salary);
-
-                var outstanding = await _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.InvoiceType == InvoiceTypes.Sell.ToString() &&
-                                i.DueDate < DateTime.UtcNow &&
-                                i.Status != InvoiceStatus.Paid.ToString())
-                    .SumAsync(i => i.Total - (i.AmountPaid ?? 0));
+                // ✅ Outstanding Receivables (AR - AccountCode 1200, cumulative)
+                var outstanding = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date <= endDate && 
+                                  (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId) &&
+                                  jel.Account.AccountCode.StartsWith("1200"))
+                    .SumAsync(jel => jel.Debit - jel.Credit);
 
                 return ServiceResult<CashFlowDto>.SuccessResult(new CashFlowDto
                 {
                     CashIn = cashIn,
-                    CashOut = cashOut + otherExpenses + totalSalaries.GetValueOrDefault(),
-                    NetCashFlow = cashIn - (cashOut + otherExpenses + totalSalaries.GetValueOrDefault()),
-                    TotalExpenses = otherExpenses,
-                    TotalPurchaseInvoices = cashOut,
-                    TotalSalaries = totalSalaries,
+                    CashOut = cashOut,
+                    NetCashFlow = cashIn - cashOut,
+                    TotalExpenses = await linesQuery
+                        .Where(jel => jel.Account.AccountType == AccountType.Expense)
+                        .SumAsync(jel => jel.Debit - jel.Credit),
+                    TotalPurchaseInvoices = 0,
+                    TotalSalaries = 0,
                     OutstandingReceivables = outstanding
                 });
             }
@@ -276,39 +284,34 @@ namespace fatortak.Services.ReportsService
         #endregion
 
         #region Profit Analysis
-        public async Task<ServiceResult<ProfitAnalysisDto>> GetProfitAnalysisAsync(string period = "month")
+        public async Task<ServiceResult<ProfitAnalysisDto>> GetProfitAnalysisAsync(string period = "month", Guid? projectId = null)
         {
             try
             {
                 var (startDate, endDate) = GetDateRange(period);
 
-                var revenue = await _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.InvoiceType == InvoiceTypes.Sell.ToString() &&
-                                i.IssueDate >= startDate && i.IssueDate <= endDate &&
-                                (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()))
-                    .SumAsync(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue ? i.AmountPaid.Value : i.Total);
+                // Financial lines for the period
+                var linesQuery = _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date >= startDate &&
+                                  jel.JournalEntry.Date <= endDate &&
+                                  (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId));
 
-                var expenses = await _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.InvoiceType == InvoiceTypes.Buy.ToString() &&
-                                i.IssueDate >= startDate && i.IssueDate <= endDate &&
-                                (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()))
-                    .SumAsync(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue ? i.AmountPaid.Value : i.Total);
+                // ✅ Revenue (AccountType.Revenue: Credit - Debit)
+                var revenue = await linesQuery
+                    .Where(jel => jel.Account.AccountType == AccountType.Revenue)
+                    .SumAsync(jel => jel.Credit - jel.Debit);
 
-                var otherExpenses = await _context.Expenses
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.Date >= DateOnly.FromDateTime(startDate) &&
-                                i.Date <= DateOnly.FromDateTime(endDate))
-                    .SumAsync(i => i.Total);
+                // ✅ Expenses (AccountType.Expense: Debit - Credit)
+                var totalExpenses = await linesQuery
+                    .Where(jel => jel.Account.AccountType == AccountType.Expense)
+                    .SumAsync(jel => jel.Debit - jel.Credit);
 
-                var totalSalaries = await _context.Employees
-                    .Where(e => e.TenantId == _tenantId)
-                    .SumAsync(i => i.Salary);
-
-                var grossProfit = revenue - expenses;
-                var netProfit = revenue - (expenses + otherExpenses + totalSalaries.GetValueOrDefault());
-                var grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+                var netProfit = revenue - totalExpenses;
+                var grossMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
 
                 return ServiceResult<ProfitAnalysisDto>.SuccessResult(new ProfitAnalysisDto
                 {
@@ -563,6 +566,14 @@ namespace fatortak.Services.ReportsService
                 );
             }
 
+            // Project filter
+            if (filter.ProjectId.HasValue)
+                query = query.Where(e => e.ProjectId == filter.ProjectId.Value);
+
+            // Branch filter
+            if (filter.BranchId.HasValue)
+                query = query.Where(e => e.BranchId == filter.BranchId.Value);
+
             // Date range filters
             if (filter.FromDate.HasValue)
                 query = query.Where(e => e.Date >= DateOnly.FromDateTime(filter.FromDate.Value));
@@ -614,6 +625,14 @@ namespace fatortak.Services.ReportsService
             // Status filter
             if (!string.IsNullOrWhiteSpace(filter.Status))
                 query = query.Where(i => i.Status.ToLower() == filter.Status.ToLower());
+
+            // Project filter
+            if (filter.ProjectId.HasValue)
+                query = query.Where(i => i.ProjectId == filter.ProjectId.Value);
+
+            // Branch filter
+            if (filter.BranchId.HasValue)
+                query = query.Where(i => i.BranchId == filter.BranchId.Value);
 
             // Date range filters
             if (filter.FromDate.HasValue)
@@ -1536,43 +1555,50 @@ namespace fatortak.Services.ReportsService
                 var project = await _context.Projects.FindAsync(projectId);
                 if (project == null) return ServiceResult<ProjectSheetDto>.Failure("Project not found");
 
-                var query = _context.Transactions
-                    .Where(t => t.TenantId == _tenantId && t.ProjectId == projectId)
-                    .AsQueryable();
-
-                if (fromDate.HasValue) query = query.Where(t => t.TransactionDate >= fromDate.Value);
-                if (toDate.HasValue) query = query.Where(t => t.TransactionDate <= toDate.Value);
-
-                var transactions = await query
-                    .OrderByDescending(t => t.TransactionDate)
-                    .Select(t => new fatortak.Dtos.Transaction.TransactionDto
-                    {
-                        Id = t.Id,
-                        Date = t.TransactionDate.ToString("dd MMM yyyy"),
-                        TransactionDate = t.TransactionDate,
-                        Type = t.Type,
-                        Amount = t.Amount,
-                        Direction = t.Direction,
-                        Description = t.Description,
-                        Reference = t.ReferenceId,
-                        ReferenceId = t.ReferenceId,
-                        Category = t.Category,
-                        AttachmentUrl = t.AttachmentUrl
-                    })
+                var journalEntries = await _context.JournalEntries
+                    .Include(je => je.Lines)
+                    .ThenInclude(l => l.Account)
+                    .Where(je => je.TenantId == _tenantId && je.ProjectId == projectId && je.IsPosted)
+                    .AsQueryable()
+                    .OrderByDescending(je => je.Date)
                     .ToListAsync();
 
-                var totalIncome = transactions.Where(t => t.Direction == "Credit").Sum(t => t.Amount);
-                var totalExpenses = transactions.Where(t => t.Direction == "Debit").Sum(t => t.Amount);
+                if (fromDate.HasValue) journalEntries = journalEntries.Where(je => je.Date >= fromDate.Value).ToList();
+                if (toDate.HasValue) journalEntries = journalEntries.Where(je => je.Date <= toDate.Value).ToList();
 
-                // Calculate Receivables (Unpaid Invoices linked to Project)
-                var receivablesQuery = _context.Invoices
-                    .Where(i => i.TenantId == _tenantId && i.ProjectId == projectId && i.InvoiceType == InvoiceTypes.Sell.ToString() && i.Status != InvoiceStatus.Paid.ToString() && i.Status != InvoiceStatus.Cancelled.ToString());
-                
-                if (fromDate.HasValue) receivablesQuery = receivablesQuery.Where(i => i.IssueDate >= fromDate.Value);
-                if (toDate.HasValue) receivablesQuery = receivablesQuery.Where(i => i.IssueDate <= toDate.Value);
+                var transactions = journalEntries.Select(je => new fatortak.Dtos.Transaction.TransactionDto
+                {
+                    Id = je.Id,
+                    Date = je.Date.ToString("dd MMM yyyy"),
+                    TransactionDate = je.Date,
+                    Type = je.ReferenceType.ToString(),
+                    Amount = je.Lines.Sum(l => l.Debit),
+                    Direction = je.ReferenceType == JournalEntryReferenceType.Expense ? "Debit" : (je.ReferenceType == JournalEntryReferenceType.Invoice ? "Credit" : "Both"),
+                    Description = je.Description,
+                    Reference = je.EntryNumber,
+                    ReferenceId = je.ReferenceId.ToString()
+                }).ToList();
 
-                var totalReceivables = await receivablesQuery
-                    .SumAsync(i => i.Total - (i.AmountPaid ?? 0));
+                // Income = revenue generated (+ direct cash income if any)
+                var totalIncome = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId && jel.JournalEntry.ProjectId == projectId && jel.JournalEntry.IsPosted && jel.Account.AccountType == AccountType.Revenue)
+                    .SumAsync(jel => jel.Credit - jel.Debit);
+
+                // Expenses = expenses incurred (+ direct cash expenses)
+                var totalExpenses = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId && jel.JournalEntry.ProjectId == projectId && jel.JournalEntry.IsPosted && jel.Account.AccountType == AccountType.Expense)
+                    .SumAsync(jel => jel.Debit - jel.Credit);
+
+                // Receivables = Current AR balance for this project
+                var totalReceivables = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId && jel.JournalEntry.ProjectId == projectId && jel.JournalEntry.IsPosted && jel.Account.AccountCode.StartsWith("1200"))
+                    .SumAsync(jel => jel.Debit - jel.Credit);
 
                 return ServiceResult<ProjectSheetDto>.SuccessResult(new ProjectSheetDto
                 {

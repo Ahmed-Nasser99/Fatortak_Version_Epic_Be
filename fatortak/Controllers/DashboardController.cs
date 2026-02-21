@@ -18,11 +18,11 @@ namespace fatortak.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetDashboardData([FromQuery]string period = "month", [FromQuery] Guid? branchId = null)
+        public async Task<IActionResult> GetDashboardData([FromQuery]string period = "month", [FromQuery] Guid? branchId = null, [FromQuery] Guid? projectId = null)
         {
             try
             {
-                var dashboardData = await _dashboardService.GetDashboardDataAsync(period, branchId);
+                var dashboardData = await _dashboardService.GetDashboardDataAsync(period, branchId, projectId);
                 return Ok(new { success = true, data = dashboardData });
             }
             catch (UnauthorizedAccessException ex)

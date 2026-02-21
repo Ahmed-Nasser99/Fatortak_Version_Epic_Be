@@ -320,43 +320,45 @@ namespace fatortak.Controllers
         }
 
         [HttpGet("stats")]
-        public async Task<ActionResult<ServiceResult<ReportStatsDto>>> GetStats([FromQuery] string period = "month")
+        public async Task<ActionResult<ServiceResult<ReportStatsDto>>> GetStats([FromQuery] string period = "month", [FromQuery] Guid? projectId = null)
         {
-            return Ok(await _reportsService.GetReportStatsAsync(period));
+            return Ok(await _reportsService.GetReportStatsAsync(period, projectId));
         }
 
         [HttpGet("revenue")]
-        public async Task<ActionResult<ServiceResult<List<RevenueDataPointDto>>>> GetRevenue([FromQuery] string period = "month")
+        public async Task<ActionResult<ServiceResult<List<RevenueDataPointDto>>>> GetRevenue([FromQuery] string period = "month", [FromQuery] Guid? projectId = null)
         {
-            return Ok(await _reportsService.GetRevenueDataAsync(period));
+            return Ok(await _reportsService.GetRevenueDataAsync(period, projectId));
         }
 
         [HttpGet("top-customers")]
         public async Task<ActionResult<ServiceResult<List<TopCustomerDto>>>> GetTopCustomers(
             [FromQuery] string period = "month",
-            [FromQuery] int top = 5)
+            [FromQuery] int top = 5,
+            [FromQuery] Guid? projectId = null)
         {
-            return Ok(await _reportsService.GetTopCustomersAsync(period, top));
+            return Ok(await _reportsService.GetTopCustomersAsync(period, top, projectId));
         }
 
         [HttpGet("top-suppliers")]
         public async Task<ActionResult<ServiceResult<List<TopSupplierDto>>>> GetTopSuppliers(
             [FromQuery] string period = "month",
-            [FromQuery] int top = 5)
+            [FromQuery] int top = 5,
+            [FromQuery] Guid? projectId = null)
         {
-            return Ok(await _reportsService.GetTopSuppliersAsync(period, top));
+            return Ok(await _reportsService.GetTopSuppliersAsync(period, top, projectId));
         }
 
         [HttpGet("cashflow")]
-        public async Task<ActionResult<ServiceResult<CashFlowDto>>> GetCashFlow([FromQuery] string period = "month")
+        public async Task<ActionResult<ServiceResult<CashFlowDto>>> GetCashFlow([FromQuery] string period = "month", [FromQuery] Guid? projectId = null)
         {
-            return Ok(await _reportsService.GetCashFlowAsync(period));
+            return Ok(await _reportsService.GetCashFlowAsync(period, projectId));
         }
 
         [HttpGet("profit")]
-        public async Task<ActionResult<ServiceResult<ProfitAnalysisDto>>> GetProfitAnalysis([FromQuery] string period = "month")
+        public async Task<ActionResult<ServiceResult<ProfitAnalysisDto>>> GetProfitAnalysis([FromQuery] string period = "month", [FromQuery] Guid? projectId = null)
         {
-            return Ok(await _reportsService.GetProfitAnalysisAsync(period));
+            return Ok(await _reportsService.GetProfitAnalysisAsync(period, projectId));
         }
 
         [HttpGet("SalesInvoices")]
