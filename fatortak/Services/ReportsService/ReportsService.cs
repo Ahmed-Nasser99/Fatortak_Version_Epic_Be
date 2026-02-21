@@ -158,21 +158,32 @@ namespace fatortak.Services.ReportsService
             {
                 var (startDate, endDate) = GetDateRange(period);
 
-                var result = await _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.InvoiceType == InvoiceTypes.Sell.ToString() &&
-                                i.IssueDate >= startDate && i.IssueDate <= endDate &&
-                                (!projectId.HasValue || i.ProjectId == projectId) &&
-                                (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()))
-                    .GroupBy(i => new { i.CustomerId, i.Customer.Name })
+                // ✅ Ranking by Revenue generated (Accrual basis)
+                // Join Revenue Journal Entries with Invoices to get Customer info
+                var result = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date >= startDate &&
+                                  jel.JournalEntry.Date <= endDate &&
+                                  (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId) &&
+                                  jel.Account.AccountType == AccountType.Revenue &&
+                                  jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Invoice)
+                    .Join(_context.Invoices.Include(i => i.Customer),
+                          jel => jel.JournalEntry.ReferenceId,
+                          i => i.Id,
+                          (jel, i) => new { jel, i })
+                    .Where(x => x.i.InvoiceType == InvoiceTypes.Sell.ToString())
+                    .GroupBy(x => new { x.i.CustomerId, x.i.Customer.Name })
                     .Select(g => new TopCustomerDto
                     {
                         Id = g.Key.CustomerId,
                         Name = g.Key.Name,
-                        Orders = g.Count(),
-                        TotalSpent = g.Sum(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue ? i.AmountPaid.Value : i.Total),
-                        LastOrderDate = g.Max(i => i.IssueDate),
-                        Status = g.Sum(i => i.Total) > 10000 ? "VIP" : "Regular"
+                        Orders = g.Select(x => x.i.Id).Distinct().Count(),
+                        TotalSpent = g.Sum(x => x.jel.Credit - x.jel.Debit),
+                        LastOrderDate = g.Max(x => x.i.IssueDate),
+                        Status = g.Sum(x => x.jel.Credit - x.jel.Debit) > 10000 ? "VIP" : "Regular"
                     })
                     .OrderByDescending(c => c.TotalSpent)
                     .Take(topCount)
@@ -195,26 +206,62 @@ namespace fatortak.Services.ReportsService
             {
                 var (startDate, endDate) = GetDateRange(period);
 
-                var result = await _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                                i.InvoiceType == InvoiceTypes.Buy.ToString() &&
-                                i.IssueDate >= startDate && i.IssueDate <= endDate &&
-                                (!projectId.HasValue || i.ProjectId == projectId) &&
-                                (i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()))
-                    .GroupBy(i => new { i.CustomerId, i.Customer.Name })
+                // ✅ Ranking by Cost incurred (Accrual basis)
+                // Includes Buy Invoices and Expenses
+                var result = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date >= startDate &&
+                                  jel.JournalEntry.Date <= endDate &&
+                                  (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId) &&
+                                  jel.Account.AccountType == AccountType.Expense)
+                    .Select(jel => new
+                    {
+                        jel.Debit,
+                        jel.Credit,
+                        jel.JournalEntry.ReferenceType,
+                        jel.JournalEntry.ReferenceId,
+                        jel.JournalEntry.Description
+                    })
+                    .ToListAsync(); // Pull to memory to handle complex joins/regex if needed, or use subqueries
+
+                // Since TopSupplier needs to group by SupplierId which is in Invoices or Expenses, 
+                // and ReferenceId might be Guid? or int (for Expense), we need careful mapping.
+                
+                // For now, let's keep it simpler but accounting-based by focusing on Invoice-based suppliers first
+                // and then adding direct expenses if they have a linked supplier (not implemented yet in schema).
+
+                var suppliersInvoiced = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date >= startDate &&
+                                  jel.JournalEntry.Date <= endDate &&
+                                  (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId) &&
+                                  jel.Account.AccountCode.StartsWith("5000") && // Expense accounts
+                                  jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Invoice)
+                    .Join(_context.Invoices.Include(i => i.Customer),
+                          jel => jel.JournalEntry.ReferenceId,
+                          i => i.Id,
+                          (jel, i) => new { jel, i })
+                    .Where(x => x.i.InvoiceType == InvoiceTypes.Buy.ToString())
+                    .GroupBy(x => new { x.i.CustomerId, x.i.Customer.Name })
                     .Select(g => new TopSupplierDto
                     {
                         Id = g.Key.CustomerId,
                         Name = g.Key.Name,
-                        Orders = g.Count(),
-                        TotalAmount = g.Sum(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue ? i.AmountPaid.Value : i.Total),
-                        LastOrderDate = g.Max(i => i.IssueDate)
+                        Orders = g.Select(x => x.i.Id).Distinct().Count(),
+                        TotalAmount = g.Sum(x => x.jel.Debit - x.jel.Credit),
+                        LastOrderDate = g.Max(x => x.i.IssueDate)
                     })
-                    .OrderByDescending(c => c.TotalAmount)
+                    .OrderByDescending(s => s.TotalAmount)
                     .Take(topCount)
                     .ToListAsync();
 
-                return ServiceResult<List<TopSupplierDto>>.SuccessResult(result);
+                return ServiceResult<List<TopSupplierDto>>.SuccessResult(suppliersInvoiced);
             }
             catch (Exception ex)
             {
@@ -329,59 +376,95 @@ namespace fatortak.Services.ReportsService
         #endregion
 
         #region Sales Report
-        public async Task<ServiceResult<PagedResponseDto<InvoiceDto>>> GetSalesReport(
+        public async Task<ServiceResult<PagedResponseDto<TransactionDto>>> GetSalesReport(
         InvoiceFilterDto filter, PaginationDto pagination)
         {
             try
             {
-                var baseQuery = _context.Invoices
-                    .Where(i => i.TenantId == _tenantId &&
-                            i.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower() &&
-                            i.Status != InvoiceStatus.Cancelled.ToString() &&
-                            i.Status != InvoiceStatus.Draft.ToString())
+                var arAccountCode = "1200"; // Accounts Receivable
+
+                var baseQuery = _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .ThenInclude(je => je.Project)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.Account.AccountCode.StartsWith(arAccountCode))
                     .AsQueryable();
 
-                // Apply filters to base query
-                var filteredQuery = ApplyInvoicesFilters(baseQuery, filter);
+                // Join with Invoices to apply invoice-specific filters (like CustomerId)
+                // Note: We use a left join/Any check for payments that might not be directly linked to a specific invoice ID but linked to a project
+                var filteredQuery = baseQuery.Where(jel => 
+                    (jel.JournalEntry.ReferenceId != null && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.InvoiceType == InvoiceTypes.Sell.ToString())) ||
+                    (jel.JournalEntry.ProjectId != null && _context.Projects.Any(p => p.Id == jel.JournalEntry.ProjectId))
+                );
+
+                if (filter.CustomerId.HasValue)
+                {
+                    filteredQuery = filteredQuery.Where(jel => 
+                        (jel.JournalEntry.ReferenceId != null && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.CustomerId == filter.CustomerId)) ||
+                        (jel.JournalEntry.ProjectId != null && _context.Projects.Any(p => p.Id == jel.JournalEntry.ProjectId && p.CustomerId == filter.CustomerId))
+                    );
+                }
+
+                if (filter.FromDate.HasValue)
+                {
+                    filteredQuery = filteredQuery.Where(jel => jel.JournalEntry.Date >= filter.FromDate.Value);
+                }
+                if (filter.ToDate.HasValue)
+                {
+                    filteredQuery = filteredQuery.Where(jel => jel.JournalEntry.Date <= filter.ToDate.Value);
+                }
+                if (!string.IsNullOrWhiteSpace(filter.Search))
+                {
+                    var searchTerm = filter.Search.ToLower();
+                    filteredQuery = filteredQuery.Where(jel => 
+                        (jel.JournalEntry.Description != null && jel.JournalEntry.Description.ToLower().Contains(searchTerm)) ||
+                        (jel.JournalEntry.EntryNumber.ToLower().Contains(searchTerm))
+                    );
+                }
 
                 // Get total count for pagination
                 var totalCount = await filteredQuery.CountAsync();
 
-                // Calculate statistics using database aggregation (more efficient)
-                var statsQuery = filteredQuery.GroupBy(i => 1).Select(g => new
+                // Calculate statistics
+                // In a Sales Report context:
+                // Debits to AR are "Sales" (Invoices)
+                // Credits to AR are "Payments"
+                var stats = new
                 {
-                    totalSales = g.Sum(i => i.Total),
-                    totalPaid = g.Where(i => i.Status == InvoiceStatus.Paid.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString())
-                    .Sum(i => i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue
-                    ? i.AmountPaid.Value
-                    : i.Total),
-                    totalReceivables = g.Where(i => i.Status == InvoiceStatus.Pending.ToString() || i.Status == InvoiceStatus.PartialPaid.ToString()).Sum(i => (i.Status == InvoiceStatus.PartialPaid.ToString() && i.AmountPaid.HasValue) ? i.Total - i.AmountPaid.Value : i.Total),
-                    totalCount = g.Count(),
-                });
-
-                var stats = await statsQuery.FirstOrDefaultAsync() ?? new
-                {
-                    totalSales = 0m,
-                    totalPaid = 0m,
-                    totalReceivables = 0m,
-                    totalCount = 0,
+                    totalSales = await filteredQuery.SumAsync(jel => jel.Debit),
+                    totalPaid = await filteredQuery.SumAsync(jel => jel.Credit),
+                    totalReceivables = await filteredQuery.SumAsync(jel => jel.Debit - jel.Credit),
+                    totalCount = totalCount
                 };
-                var invoices = await filteredQuery
-                    .Include(i => i.Customer)
-                     .Include(i => i.Installments)
-                    .Include(i => i.InvoiceItems)
-                    .ThenInclude(ii => ii.Item)
-                    .OrderByDescending(i => i.CreatedAt)
+
+                var lines = await filteredQuery
+                    .OrderByDescending(jel => jel.JournalEntry.Date)
+                    .ThenByDescending(jel => jel.JournalEntry.CreatedAt)
                     .Skip((pagination.PageNumber - 1) * pagination.PageSize)
                     .Take(pagination.PageSize)
                     .ToListAsync();
 
-                var invoiceDtos = invoices.Select(MapToDto).ToList();
+                var transactionDtos = lines.Select(l => new TransactionDto
+                {
+                    Id = l.JournalEntryId,
+                    TransactionDate = l.JournalEntry.Date,
+                    Date = l.JournalEntry.Date.ToString("dd MMM yyyy"),
+                    Type = l.JournalEntry.ReferenceType.ToString(),
+                    Amount = l.Debit > 0 ? l.Debit : l.Credit,
+                    Direction = l.Debit > 0 ? "Debit" : "Credit",
+                    Description = l.JournalEntry.Description,
+                    ReferenceId = l.JournalEntry.ReferenceId?.ToString(),
+                    ReferenceType = l.JournalEntry.ReferenceType.ToString(),
+                    ProjectName = l.JournalEntry.Project?.Name,
+                    CreatedAt = l.JournalEntry.CreatedAt
+                }).ToList();
 
-                return ServiceResult<PagedResponseDto<InvoiceDto>>.SuccessResult(
-                    new PagedResponseDto<InvoiceDto>
+                return ServiceResult<PagedResponseDto<TransactionDto>>.SuccessResult(
+                    new PagedResponseDto<TransactionDto>
                     {
-                        Data = invoiceDtos,
+                        Data = transactionDtos,
                         PageNumber = pagination.PageNumber,
                         PageSize = pagination.PageSize,
                         TotalCount = totalCount,
@@ -390,8 +473,8 @@ namespace fatortak.Services.ReportsService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving invoices with filters: {@Filter}", filter);
-                return ServiceResult<PagedResponseDto<InvoiceDto>>.Failure("Failed to retrieve invoices");
+                _logger.LogError(ex, "Error retrieving sales report with filters: {@Filter}", filter);
+                return ServiceResult<PagedResponseDto<TransactionDto>>.Failure("Failed to retrieve sales report");
             }
         }
         #endregion
@@ -755,70 +838,91 @@ namespace fatortak.Services.ReportsService
         {
             try
             {
-                // Validate customer exists and is not deleted
                 var customer = await _context.Customers
                     .FirstOrDefaultAsync(c => c.TenantId == _tenantId
                         && c.Id == filter.CustomerId
                         && !c.IsDeleted);
 
-                if (customer == null)
+                if (customer == null) return ServiceResult<AccountStatementDto>.Failure("Customer not found");
+
+                var company = await _context.Companies.FirstOrDefaultAsync(c => c.TenantId == _tenantId);
+                var arAccountCode = filter.InvoiceType == InvoiceTypes.Sell.ToString() ? "1200" : "2100";
+
+                // 1. Calculate Opening Balance from Journal Entries
+                var openingBalance = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date < filter.StartDate &&
+                                  jel.Account.AccountCode.StartsWith(arAccountCode))
+                    .Where(jel => 
+                        (jel.JournalEntry.ReferenceId != null && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.CustomerId == filter.CustomerId && i.InvoiceType == filter.InvoiceType)) ||
+                        (jel.JournalEntry.ProjectId != null && _context.Projects.Any(p => p.Id == jel.JournalEntry.ProjectId && p.CustomerId == filter.CustomerId))
+                    )
+                    .SumAsync(jel => jel.Debit - jel.Credit);
+
+                // For suppliers, balance is usually Credit - Debit, but we want a signed representation
+                if (filter.InvoiceType == InvoiceTypes.Buy.ToString())
                 {
-                    return ServiceResult<AccountStatementDto>.Failure("Customer not found");
+                    openingBalance = -openingBalance; // We use negative for what we owe suppliers in this report's logic
                 }
 
-                // Get company info for currency
-                var company = await _context.Companies
-                    .FirstOrDefaultAsync(c => c.TenantId == _tenantId);
-
-                // 1. Calculate Opening Balance (all transactions before start date)
-                var openingBalance = await CalculateOpeningBalanceAsync(filter.CustomerId, filter.StartDate, filter.InvoiceType);
-
                 // 2. Get all transactions in the period
-                var transactions = new List<AccountStatementTransactionDto>();
+                // We join JournalEntryLines with Invoices to filter by customer
+                var query = _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .ThenInclude(je => je.Project)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  jel.JournalEntry.Date >= filter.StartDate &&
+                                  jel.JournalEntry.Date <= filter.EndDate &&
+                                  jel.Account.AccountCode.StartsWith(arAccountCode))
+                    .Where(jel => 
+                        (jel.JournalEntry.ReferenceId != null && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.CustomerId == filter.CustomerId && i.InvoiceType == filter.InvoiceType)) ||
+                        (jel.JournalEntry.ProjectId != null && _context.Projects.Any(p => p.Id == jel.JournalEntry.ProjectId && p.CustomerId == filter.CustomerId))
+                    )
+                    .OrderBy(jel => jel.JournalEntry.Date)
+                    .Select(jel => new AccountStatementTransactionDto
+                    {
+                        TransactionDate = jel.JournalEntry.Date,
+                        Date = jel.JournalEntry.Date.ToString("dd MMM yyyy"),
+                        TransactionType = jel.JournalEntry.ReferenceType.ToString(),
+                        TransactionDetails = jel.JournalEntry.Description ?? "",
+                        ProjectId = jel.JournalEntry.ProjectId,
+                        ProjectName = jel.JournalEntry.Project != null ? jel.JournalEntry.Project.Name : null,
+                        // If it's an Invoice JE, it adds to AR. If it's a Payment JE, it reduces AR.
+                        InvoiceAmount = jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Invoice ? (filter.InvoiceType == InvoiceTypes.Sell.ToString() ? jel.Debit : -jel.Credit) : 0,
+                        PaymentAmount = jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Payment ? (filter.InvoiceType == InvoiceTypes.Sell.ToString() ? -jel.Credit : jel.Debit) : 0,
+                        OrderPriority = jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Invoice ? 1 : 2
+                    });
 
-                // Add invoice transactions
-                var invoiceTransactions = await GetInvoiceTransactionsAsync(filter);
-                transactions.AddRange(invoiceTransactions);
+                var transactions = await query.ToListAsync();
 
-                // Add direct payment transactions
-                var directPayments = await GetDirectPaymentTransactionsAsync(filter);
-                transactions.AddRange(directPayments);
-
-                // Add installment payment transactions
-                var installmentPayments = await GetInstallmentPaymentTransactionsAsync(filter);
-                transactions.AddRange(installmentPayments);
-
-                // Add payment application records
-                var paymentApplications = await GetPaymentApplicationsAsync(filter);
-                transactions.AddRange(paymentApplications);
-
-                // 3. Sort transactions and calculate running balance
+                // 3. Sort and calculate running balance
                 var sortedTransactions = transactions
                     .OrderBy(t => t.TransactionDate)
+                    .ThenBy(t => t.OrderPriority)
                     .ToList();
 
                 decimal runningBalance = openingBalance;
                 foreach (var transaction in sortedTransactions)
                 {
-                    runningBalance += (transaction.InvoiceAmount ?? 0)
-                                    + (transaction.PaymentAmount ?? 0)
-                                    + (transaction.CreditAmount ?? 0);
+                    runningBalance += (transaction.InvoiceAmount ?? 0) + (transaction.PaymentAmount ?? 0);
                     transaction.Balance = runningBalance;
                 }
 
-                // 4. Add opening balance transaction if there are transactions in the period
-                if (sortedTransactions.Any())
+                // 4. Add opening balance row
+                sortedTransactions.Insert(0, new AccountStatementTransactionDto
                 {
-                    sortedTransactions.Insert(0, new AccountStatementTransactionDto
-                    {
-                        TransactionDate = filter.StartDate,
-                        Date = filter.StartDate.ToString("dd MMM yyyy"),
-                        TransactionType = "Opening Balance",
-                        TransactionDetails = "",
-                        Balance = openingBalance,
-                        OrderPriority = 0
-                    });
-                }
+                    TransactionDate = filter.StartDate,
+                    Date = filter.StartDate.ToString("dd MMM yyyy"),
+                    TransactionType = "Opening Balance",
+                    TransactionDetails = "",
+                    Balance = openingBalance,
+                    OrderPriority = 0
+                });
 
                 var result = new AccountStatementDto
                 {
@@ -846,205 +950,6 @@ namespace fatortak.Services.ReportsService
             }
         }
 
-        // Helper method: Calculate opening balance
-        private async Task<decimal> CalculateOpeningBalanceAsync(Guid customerId, DateTime startDate, string invoiceType)
-        {
-            decimal balance = 0;
-
-            // 1️⃣ الفواتير قبل الفترة
-            var invoicesBefore = await _context.Invoices
-                .Where(i => i.TenantId == _tenantId
-                    && i.CustomerId == customerId
-                    && i.IssueDate < startDate
-                    && i.Status != InvoiceStatus.Cancelled.ToString()
-                    && i.InvoiceType == invoiceType)
-                .Select(i => invoiceType == InvoiceTypes.Sell.ToString()
-                    ? i.Total        // Customer owes us (positive)
-                    : -i.Total)      // We owe supplier (negative)
-                .SumAsync();
-
-            balance += invoicesBefore;
-
-            // 2️⃣ المدفوعات المباشرة قبل الفترة
-            var directPaymentsBefore = await _context.Invoices
-                .Where(i => i.TenantId == _tenantId
-                    && i.CustomerId == customerId
-                    && i.PaidAt.HasValue
-                    && i.PaidAt.Value < startDate
-                    && i.InvoiceType == invoiceType
-                    && i.Status == InvoiceStatus.Paid.ToString())
-                .Select(i => invoiceType == InvoiceTypes.Sell.ToString()
-                    ? -i.Total      // Payment reduces balance
-                    : i.Total)
-                .SumAsync();
-
-            balance += directPaymentsBefore;
-
-            // 3️⃣ الأقساط المدفوعة قبل الفترة
-            var installmentsBefore = await _context.Installments
-                .Where(inst => inst.TenantId == _tenantId
-                    && inst.Invoice.CustomerId == customerId
-                    && inst.PaidAt.HasValue
-                    && inst.PaidAt.Value < startDate
-                    && inst.Status == InstallmentStatus.Paid.ToString()
-                    && inst.Invoice.InvoiceType == invoiceType)
-                .Select(inst => invoiceType == InvoiceTypes.Sell.ToString()
-                    ? -inst.Amount
-                    : inst.Amount)
-                .SumAsync();
-
-            balance += installmentsBefore;
-
-            return balance;
-        }
-
-        // Helper method: Get invoice transactions
-        private async Task<List<AccountStatementTransactionDto>> GetInvoiceTransactionsAsync(AccountStatementFilterDto filter)
-        {
-            var invoices = await _context.Invoices
-                .Where(i => i.TenantId == _tenantId
-                    && i.CustomerId == filter.CustomerId
-                    && i.CreatedAt >= filter.StartDate
-                    && i.CreatedAt <= filter.EndDate
-                    && i.InvoiceType == filter.InvoiceType
-                    && i.Status != InvoiceStatus.Cancelled.ToString())
-                .Select(i => new AccountStatementTransactionDto
-                {
-                    TransactionDate = i.CreatedAt,
-                    Date = i.CreatedAt.ToString("dd MMM yyyy"),
-                    TransactionType = "Invoice",
-                    TransactionDetails = i.InvoiceNumber,
-                    InvoiceAmount = filter.InvoiceType == InvoiceTypes.Sell.ToString()
-                        ? i.Total   // Customer owes us (positive)
-                        : -i.Total, // We owe supplier (negative)
-                    OrderPriority = 1
-                })
-                .ToListAsync();
-
-            return invoices;
-        }
-
-        // Helper method: Get direct payment transactions
-        private async Task<List<AccountStatementTransactionDto>> GetDirectPaymentTransactionsAsync(AccountStatementFilterDto filter)
-        {
-            var payments = await _context.Invoices
-                .Where(i => i.TenantId == _tenantId
-                    && i.CustomerId == filter.CustomerId
-                    && i.PaidAt.HasValue
-                    && i.PaidAt.Value >= filter.StartDate
-                    && i.PaidAt.Value <= filter.EndDate
-                    && i.InvoiceType == filter.InvoiceType
-                    && i.Status == InvoiceStatus.Paid.ToString())
-                .Select(i => new AccountStatementTransactionDto
-                {
-                    TransactionDate = i.PaidAt.Value,
-                    Date = i.PaidAt.Value.ToString("dd MMM yyyy"),
-                    TransactionType = "Payment Received",
-                    TransactionDetails = "PAY-" + i.InvoiceNumber,
-                    PaymentAmount = filter.InvoiceType == InvoiceTypes.Sell.ToString()
-                                    ? -i.Total
-                                    : i.Total, // Payment reduces balance (negative)
-                    OrderPriority = 2
-                })
-                .ToListAsync();
-
-            return payments;
-        }
-
-        // Helper method: Get installment payment transactions
-        private async Task<List<AccountStatementTransactionDto>> GetInstallmentPaymentTransactionsAsync(AccountStatementFilterDto filter)
-        {
-            var installmentPayments = await _context.Installments
-                .Where(inst => inst.TenantId == _tenantId
-                    && inst.Invoice.CustomerId == filter.CustomerId
-                    && inst.PaidAt.HasValue
-                    && inst.PaidAt.Value >= filter.StartDate
-                    && inst.PaidAt.Value <= filter.EndDate
-                    && inst.Status == InstallmentStatus.Paid.ToString()
-                    && inst.Invoice.InvoiceType == filter.InvoiceType)
-                .OrderBy(inst => inst.InvoiceId)
-                .ThenBy(inst => inst.DueDate)
-                .Select(inst => new
-                {
-                    inst.PaidAt,
-                    inst.Amount,
-                    inst.InvoiceId,
-                    InvoiceNumber = inst.Invoice.InvoiceNumber,
-                    inst.DueDate
-                })
-                .ToListAsync();
-
-            // Group by invoice to number installments
-            var transactions = installmentPayments
-                .GroupBy(p => p.InvoiceId)
-                .SelectMany(g => g.Select((p, index) => new AccountStatementTransactionDto
-                {
-                    TransactionDate = p.PaidAt.Value,
-                    Date = p.PaidAt.Value.ToString("dd MMM yyyy"),
-                    TransactionType = "Payment Received",
-                    TransactionDetails = $"INST-{p.InvoiceNumber}-{index + 1}",
-                    PaymentAmount = filter.InvoiceType == InvoiceTypes.Sell.ToString()
-                        ? -p.Amount   // Customer owes us (positive)
-                        : p.Amount, // Payment reduces balance (negative)
-                    OrderPriority = 2
-                }))
-                .ToList();
-
-            return transactions;
-        }
-
-        // Helper method: Get payment applications
-        private async Task<List<AccountStatementTransactionDto>> GetPaymentApplicationsAsync(AccountStatementFilterDto filter)
-        {
-            var applications = new List<AccountStatementTransactionDto>();
-
-            // Direct payment applications
-            var directApplications = await _context.Invoices
-                .Where(i => i.TenantId == _tenantId
-                    && i.CustomerId == filter.CustomerId
-                    && i.PaidAt.HasValue
-                    && i.PaidAt.Value >= filter.StartDate
-                    && i.PaidAt.Value <= filter.EndDate
-                    && i.InvoiceType == filter.InvoiceType
-                    && i.Status == InvoiceStatus.Paid.ToString())
-                .Select(i => new AccountStatementTransactionDto
-                {
-                    TransactionDate = i.PaidAt.Value,
-                    Date = i.PaidAt.Value.ToString("dd MMM yyyy"),
-                    TransactionType = "Payment Applied",
-                    TransactionDetails = $"Applied to invoice {i.InvoiceNumber} for amount {i.Total:N2}",
-                    OrderPriority = 3
-                })
-                .ToListAsync();
-
-            applications.AddRange(directApplications);
-
-            // Installment payment applications
-            var installmentApplications = await _context.Installments
-                .Where(inst => inst.TenantId == _tenantId
-                    && inst.Invoice.CustomerId == filter.CustomerId
-                    && inst.PaidAt.HasValue
-                    && inst.PaidAt.Value >= filter.StartDate
-                    && inst.PaidAt.Value <= filter.EndDate
-                    && inst.Status == InstallmentStatus.Paid.ToString()
-                    && inst.Invoice.InvoiceType == filter.InvoiceType)
-                .Select(inst => new AccountStatementTransactionDto
-                {
-                    TransactionDate = inst.PaidAt.Value,
-                    Date = inst.PaidAt.Value.ToString("dd MMM yyyy"),
-                    TransactionType = "Payment Applied",
-                    TransactionDetails = $"Applied to invoice {inst.Invoice.InvoiceNumber} for amount {inst.Amount:N2}",
-                    PaymentAmount = filter.InvoiceType == InvoiceTypes.Sell.ToString()
-                                    ? -inst.Amount
-                                    : inst.Amount,
-                    OrderPriority = 3
-                })
-                .ToListAsync();
-
-            applications.AddRange(installmentApplications);
-
-            return applications;
-        }
         #endregion
 
         #region Transactions
@@ -1056,84 +961,78 @@ namespace fatortak.Services.ReportsService
         {
             try
             {
-                var query = _context.Transactions
-                    .Include(t => t.Project)
-                    .Where(t => t.TenantId == _tenantId)
+                var query = _context.JournalEntries
+                    .Include(je => je.Lines)
+                    .ThenInclude(l => l.Account)
+                    .Include(je => je.Project)
+                    .Where(je => je.TenantId == _tenantId && je.IsPosted)
                     .AsQueryable();
 
-                // Apply type filter if provided
+                // Apply type filter based on ReferenceType
                 if (!string.IsNullOrEmpty(type))
                 {
-                    // Map report 'type' to Transaction 'Type' or Direction if needed
-                    // For now, assume report 'type' matches Transaction 'Type' or is one of "Sales", "Purchase"
-                    if (type == "Sales") query = query.Where(t => t.Type == "PaymentReceived");
-                    else if (type == "Purchase") query = query.Where(t => t.Type == "PaymentMade");
-                    else query = query.Where(t => t.Type == type);
+                    if (type == "Sales") query = query.Where(je => je.ReferenceType == JournalEntryReferenceType.Invoice);
+                    else if (type == "Payment") query = query.Where(je => je.ReferenceType == JournalEntryReferenceType.Payment);
+                    else if (type == "Expense") query = query.Where(je => je.ReferenceType == JournalEntryReferenceType.Expense);
                 }
 
-                // Apply InvoiceFilterDto filters
-                if (filter.FromDate.HasValue) query = query.Where(t => t.TransactionDate >= filter.FromDate.Value);
-                if (filter.ToDate.HasValue) query = query.Where(t => t.TransactionDate <= filter.ToDate.Value);
-                if (filter.BranchId.HasValue) query = query.Where(t => t.BranchId == filter.BranchId.Value);
-                if (filter.ProjectId.HasValue) query = query.Where(t => t.ProjectId == filter.ProjectId.Value);
+                if (filter.FromDate.HasValue) query = query.Where(je => je.Date >= filter.FromDate.Value);
+                if (filter.ToDate.HasValue) query = query.Where(je => je.Date <= filter.ToDate.Value);
+                if (filter.ProjectId.HasValue) query = query.Where(je => je.ProjectId == filter.ProjectId.Value);
+
                 if (!string.IsNullOrEmpty(filter.Search))
                 {
                     var searchTerm = filter.Search.ToLower();
-                    query = query.Where(t => 
-                        (t.Description != null && t.Description.ToLower().Contains(searchTerm)) ||
-                        (t.ReferenceId != null && t.ReferenceId.ToLower().Contains(searchTerm))
-                    );
+                    query = query.Where(je => 
+                        (je.Description != null && je.Description.ToLower().Contains(searchTerm)) ||
+                        (je.EntryNumber != null && je.EntryNumber.ToLower().Contains(searchTerm)));
                 }
 
                 var totalCount = await query.CountAsync();
-
-                // Calculate Statistics
-                var totalAmount = await query.SumAsync(t => t.Amount);
-                var totalPaid = await query.Where(t => t.Direction == "Credit").SumAsync(t => t.Amount); // Basic logic for paid
-                var totalRemaining = 0; // Transactions are usually settlements, so remaining doesn't apply the same as Invoice
-
-                var transactions = await query
-                    .OrderByDescending(t => t.TransactionDate)
+                var journalEntries = await query
+                    .OrderByDescending(je => je.Date)
+                    .ThenByDescending(je => je.CreatedAt)
                     .Skip((pagination.PageNumber - 1) * pagination.PageSize)
                     .Take(pagination.PageSize)
-                    .Select(t => new TransactionDto
-                    {
-                        TransactionDateTime = t.TransactionDate,
-                        Date = t.TransactionDate.ToString("dd MMM yyyy"),
-                        Type = t.Type,
-                        Reference = t.ReferenceId ?? "TRX",
-                        Amount = t.Amount,
-                        Paid = t.Amount, // Transactions are movements, so they are fully 'paid' in this context
-                        Remaining = 0,
-                        Status = "Completed",
-                        TargetId = t.ReferenceId,
-                        Direction = t.Direction
-                    })
                     .ToListAsync();
 
-                var stats = new
+                var transactions = journalEntries.Select(je =>
                 {
-                    totalAmount,
-                    totalPaid,
-                    totalRemaining,
-                    totalCount
-                };
-
-                return ServiceResult<PagedResponseDto<TransactionDto>>.SuccessResult(
-                    new PagedResponseDto<TransactionDto>
+                    var totalDebit = je.Lines.Sum(l => l.Debit);
+                    
+                    string transactionType = je.ReferenceType.ToString();
+                    decimal amount = totalDebit;
+                    decimal paid = (je.ReferenceType == JournalEntryReferenceType.Payment || je.ReferenceType == JournalEntryReferenceType.Expense) ? totalDebit : 0;
+                    
+                    return new TransactionDto
                     {
-                        Data = transactions,
-                        PageNumber = pagination.PageNumber,
-                        PageSize = pagination.PageSize,
-                        TotalCount = totalCount,
-                        MetaData = stats
-                    }
-                );
+                        Id = je.Id,
+                        TransactionDate = je.Date,
+                        Date = je.Date.ToString("dd MMM yyyy"),
+                        Type = transactionType,
+                        Reference = je.Description ?? je.EntryNumber,
+                        Amount = amount,
+                        // Using TransactionDto fields correctly
+                        ReferenceId = je.ReferenceId.ToString(),
+                        ReferenceType = je.ReferenceType.ToString(),
+                        Description = je.Description,
+                        ProjectName = je.Project?.Name,
+                        CreatedAt = je.CreatedAt
+                    };
+                }).ToList();
+
+                return ServiceResult<PagedResponseDto<TransactionDto>>.SuccessResult(new PagedResponseDto<TransactionDto>
+                {
+                    Data = transactions,
+                    PageNumber = pagination.PageNumber,
+                    PageSize = pagination.PageSize,
+                    TotalCount = totalCount
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving transactions with filters: {@Filter}", filter);
-                return ServiceResult<PagedResponseDto<TransactionDto>>.Failure("Failed to retrieve transactions");
+                _logger.LogError(ex, "Error getting recent transactions");
+                return ServiceResult<PagedResponseDto<TransactionDto>>.Failure("Failed to retrieve recent transactions");
             }
         }
 
@@ -1624,28 +1523,48 @@ namespace fatortak.Services.ReportsService
         {
             try
             {
-                // 1. Get Accounts Balances (This report is now defunct or needs redesign)
-                var accounts = new List<AccountBalanceDto>();
-
-                // 2. Get Transactions
-                var transactionsQuery = _context.Transactions
-                    .Where(t => t.TenantId == _tenantId)
-                    .AsQueryable();
-
-                var transactions = await transactionsQuery
-                    .OrderByDescending(t => t.TransactionDate)
-                    .Select(t => new fatortak.Dtos.Transaction.TransactionDto
+                // 1. Get Accounts Balances for Cash (1000) and Bank (1100)
+                var accounts = await _context.Accounts
+                    .Where(a => a.TenantId == _tenantId &&
+                                (a.AccountCode.StartsWith("1000") || a.AccountCode.StartsWith("1100")))
+                    .Select(a => new AccountBalanceDto
                     {
-                        Id = t.Id,
-                        Date = t.TransactionDate.ToString("dd MMM yyyy"),
-                        TransactionDate = t.TransactionDate,
-                        Type = t.Type,
-                        Amount = t.Amount,
-                        Direction = t.Direction,
-                        Description = t.Description,
-                        Reference = t.ReferenceId,
-                        ReferenceId = t.ReferenceId,
-                        Category = t.Category
+                        Id = a.Id,
+                        Name = a.Name,
+                        Type = a.AccountType.ToString(),
+                        Balance = 0, // Will calculate below
+                        Currency = "USD" // Should be company currency
+                    })
+                    .ToListAsync();
+
+                foreach (var account in accounts)
+                {
+                    account.Balance = await _context.JournalEntryLines
+                        .Include(jel => jel.JournalEntry)
+                        .Where(jel => jel.AccountId == account.Id && jel.JournalEntry.IsPosted)
+                        .SumAsync(jel => jel.Debit - jel.Credit);
+                }
+
+                // 2. Get Recent Transactions for these accounts
+                var transactions = await _context.JournalEntryLines
+                    .Include(jel => jel.JournalEntry)
+                    .Include(jel => jel.Account)
+                    .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
+                                  jel.JournalEntry.IsPosted &&
+                                  (jel.Account.AccountCode.StartsWith("1000") || jel.Account.AccountCode.StartsWith("1100")))
+                    .OrderByDescending(jel => jel.JournalEntry.Date)
+                    .ThenByDescending(jel => jel.JournalEntry.CreatedAt)
+                    .Take(50)
+                    .Select(jel => new fatortak.Dtos.Transaction.TransactionDto
+                    {
+                        Id = jel.JournalEntryId,
+                        Date = jel.JournalEntry.Date.ToString("dd MMM yyyy"),
+                        TransactionDate = jel.JournalEntry.Date,
+                        Type = jel.JournalEntry.ReferenceType.ToString(),
+                        Amount = jel.Debit > 0 ? jel.Debit : jel.Credit,
+                        Direction = jel.Debit > 0 ? "Debit" : "Credit",
+                        Description = jel.JournalEntry.Description,
+                        Reference = jel.JournalEntry.EntryNumber
                     })
                     .ToListAsync();
 
@@ -1680,6 +1599,59 @@ namespace fatortak.Services.ReportsService
             // StartDate in AccountStatement used for "Opening Balance". If MinValue, Opening is 0.
             
             return await GetAccountStatementAsync(filter);
+        }
+        #endregion
+
+        #region Employee Custody Report
+        public async Task<ServiceResult<List<EmployeeCustodyReportDto>>> GetEmployeeCustodyReportAsync()
+        {
+            try
+            {
+                // Custody sub-accounts start with 1500
+                var employeesQuery = _context.Accounts
+                    .Where(a => a.TenantId == _tenantId && a.AccountCode.StartsWith("1500") && a.AccountCode != "1500");
+
+                var employees = await employeesQuery.ToListAsync();
+                var result = new List<EmployeeCustodyReportDto>();
+
+                foreach (var emp in employees)
+                {
+                    var lines = await _context.JournalEntryLines
+                        .Include(jel => jel.JournalEntry)
+                        .Where(jel => jel.AccountId == emp.Id && jel.JournalEntry.IsPosted)
+                        .ToListAsync();
+
+                    var report = new EmployeeCustodyReportDto
+                    {
+                        EmployeeId = emp.Id,
+                        EmployeeName = emp.Name,
+                        CurrentBalance = lines.Sum(l => l.Debit - l.Credit),
+                        TotalReceived = lines.Sum(l => l.Debit),
+                        TotalSpent = lines.Sum(l => l.Credit),
+                        Transactions = lines.OrderByDescending(l => l.JournalEntry.Date)
+                            .Take(20)
+                            .Select(l => new fatortak.Dtos.Transaction.TransactionDto
+                            {
+                                Id = l.JournalEntryId,
+                                Date = l.JournalEntry.Date.ToString("dd MMM yyyy"),
+                                TransactionDate = l.JournalEntry.Date,
+                                Type = l.JournalEntry.ReferenceType.ToString(),
+                                Amount = l.Debit > 0 ? l.Debit : l.Credit,
+                                Direction = l.Debit > 0 ? "Debit" : "Credit",
+                                Description = l.JournalEntry.Description
+                            }).ToList()
+                    };
+
+                    result.Add(report);
+                }
+
+                return ServiceResult<List<EmployeeCustodyReportDto>>.SuccessResult(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting employee custody report");
+                return ServiceResult<List<EmployeeCustodyReportDto>>.Failure("Failed to retrieve custody report");
+            }
         }
         #endregion
     }

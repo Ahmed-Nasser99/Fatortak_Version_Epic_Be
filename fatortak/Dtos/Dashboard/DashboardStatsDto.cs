@@ -68,6 +68,8 @@
 
     public class TransactionDto
     {
+        public Guid Id { get; set; }
+        public DateTime TransactionDate { get; set; }
         public DateTime TransactionDateTime { get; set; }
         public string Date { get; set; }
         public string Type { get; set; }
@@ -80,6 +82,12 @@
         public string? TargetId { get; set; }
         public string? Description { get; set; }
         public string? Direction { get; set; }
+        
+        // Added for Reports sync
+        public string? ReferenceId { get; set; }
+        public string? ReferenceType { get; set; }
+        public string? ProjectName { get; set; }
+        public DateTime CreatedAt { get; set; }
     }
 
     public class DashboardResponseDto

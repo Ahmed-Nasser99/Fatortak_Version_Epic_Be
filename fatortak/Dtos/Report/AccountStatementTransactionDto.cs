@@ -12,6 +12,9 @@
         public decimal Balance { get; set; }
         public int OrderPriority { get; set; } // For sorting
 
+        public Guid? ProjectId { get; set; }
+        public string? ProjectName { get; set; }
+
         // Export Helpers
         public string Description => TransactionDetails;
         public decimal Debit => InvoiceAmount ?? 0;

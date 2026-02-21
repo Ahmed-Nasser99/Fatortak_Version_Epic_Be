@@ -94,18 +94,16 @@ namespace fatortak.Controllers
                 Language = lang,
                 Columns = new List<ReportColumn>
                 {
-                    new ReportColumn { Header = lang == "ar" ? "رقم الفاتورة" : "Invoice #", PropertyName = "InvoiceNumber" },
-                    new ReportColumn { Header = lang == "ar" ? "التاريخ" : "Date", PropertyName = "IssueDate", Format = "d" },
-                    new ReportColumn { Header = lang == "ar" ? "العميل" : "Customer", PropertyName = "CustomerName" },
-                    new ReportColumn { Header = lang == "ar" ? "الإجمالي" : "Total", PropertyName = "Total", Format = "C" },
-                    new ReportColumn { Header = lang == "ar" ? "المدفوع" : "Paid", PropertyName = "AmountPaid", Format = "C" },
-                    new ReportColumn { Header = lang == "ar" ? "المتبقي" : "Remaining", PropertyName = "RemainingAmount", Format = "C" },
-                    new ReportColumn { Header = lang == "ar" ? "الحالة" : "Status", PropertyName = "Status" },
-                    new ReportColumn { Header = lang == "ar" ? "تاريخ الاستحقاق" : "Due Date", PropertyName = "DueDate", Format = "d" }
+                    new ReportColumn { Header = lang == "ar" ? "المرجع" : "Reference", PropertyName = "ReferenceId" },
+                    new ReportColumn { Header = lang == "ar" ? "التاريخ" : "Date", PropertyName = "Date" },
+                    new ReportColumn { Header = lang == "ar" ? "التفاصيل" : "Description", PropertyName = "Description" },
+                    new ReportColumn { Header = lang == "ar" ? "المبلغ" : "Amount", PropertyName = "Amount", Format = "C" },
+                    new ReportColumn { Header = lang == "ar" ? "المشروع" : "Project", PropertyName = "ProjectName" },
+                    new ReportColumn { Header = lang == "ar" ? "النوع" : "Type", PropertyName = "ReferenceType" }
                 }
             };
 
-            return await GenerateExportFile<InvoiceDto>(data, metadata, format, "Sales_Report");
+            return await GenerateExportFile<fatortak.Dtos.Dashboard.TransactionDto>(data, metadata, format, "Sales_Report");
         }
 
         [HttpGet("expenses/export")]
@@ -362,19 +360,19 @@ namespace fatortak.Controllers
         }
 
         [HttpGet("SalesInvoices")]
-        public async Task<ActionResult<ServiceResult<PagedResponseDto<InvoiceDto>>>> GetSalesInvoices([FromQuery] InvoiceFilterDto filter, [FromQuery] PaginationDto pagination)
+        public async Task<ActionResult<ServiceResult<PagedResponseDto<fatortak.Dtos.Dashboard.TransactionDto>>>> GetSalesInvoices([FromQuery] InvoiceFilterDto filter, [FromQuery] PaginationDto pagination)
         {
             return Ok(await _reportsService.GetSalesReport(filter, pagination));
         }
 
         [HttpGet("Expenses")]
-        public async Task<ActionResult<ServiceResult<PagedResponseDto<InvoiceDto>>>> GetExpensesReport([FromQuery] InvoiceFilterDto filter, [FromQuery] PaginationDto pagination , [FromQuery] string? expensesStatus)
+        public async Task<ActionResult<ServiceResult<PagedResponseDto<fatortak.Dtos.Dashboard.TransactionDto>>>> GetExpensesReport([FromQuery] InvoiceFilterDto filter, [FromQuery] PaginationDto pagination , [FromQuery] string? expensesStatus)
         {
             return Ok(await _reportsService.GetExpensesReport(filter, pagination, expensesStatus));
         }
 
         [HttpGet("Transactions")]
-        public async Task<ActionResult<ServiceResult<PagedResponseDto<InvoiceDto>>>> GetTransactionReport([FromQuery] InvoiceFilterDto filter, [FromQuery] PaginationDto pagination, [FromQuery] string? type)
+        public async Task<ActionResult<ServiceResult<PagedResponseDto<fatortak.Dtos.Dashboard.TransactionDto>>>> GetTransactionReport([FromQuery] InvoiceFilterDto filter, [FromQuery] PaginationDto pagination, [FromQuery] string? type)
         {
             return Ok(await _reportsService.GetRecentTransactionsAsync(filter, pagination, type));
         }
@@ -495,6 +493,12 @@ namespace fatortak.Controllers
         {
             if (supplierId == Guid.Empty) return BadRequest(new { message = "Supplier ID is required" });
             return Ok(await _reportsService.GetSupplierLedgerAsync(supplierId, fromDate, toDate));
+        }
+
+        [HttpGet("employee-custody")]
+        public async Task<ActionResult<ServiceResult<List<EmployeeCustodyReportDto>>>> GetEmployeeCustodyReport()
+        {
+            return Ok(await _reportsService.GetEmployeeCustodyReportAsync());
         }
     }
 }

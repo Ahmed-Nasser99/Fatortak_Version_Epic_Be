@@ -14,7 +14,7 @@ namespace fatortak.Services.ReportsService
         Task<ServiceResult<List<TopSupplierDto>>> GetTopSuppliersAsync(string period, int topCount = 5, Guid? projectId = null);
         Task<ServiceResult<CashFlowDto>> GetCashFlowAsync(string period, Guid? projectId = null);
         Task<ServiceResult<ProfitAnalysisDto>> GetProfitAnalysisAsync(string period, Guid? projectId = null);
-        Task<ServiceResult<PagedResponseDto<InvoiceDto>>> GetSalesReport(
+        Task<ServiceResult<PagedResponseDto<TransactionDto>>> GetSalesReport(
         InvoiceFilterDto filter, PaginationDto pagination);
         Task<ServiceResult<PagedResponseDto<TransactionDto>>> GetExpensesReport(
         InvoiceFilterDto filter, PaginationDto pagination, string? expensesStatus);
@@ -36,5 +36,6 @@ namespace fatortak.Services.ReportsService
         Task<ServiceResult<ProjectSheetDto>> GetProjectSheetAsync(Guid projectId, DateTime? fromDate, DateTime? toDate);
         Task<ServiceResult<TreasuryReportDto>> GetTreasuryReportAsync(DateTime? fromDate, DateTime? toDate);
         Task<ServiceResult<AccountStatementDto>> GetSupplierLedgerAsync(Guid supplierId, DateTime? fromDate, DateTime? toDate);
+        Task<ServiceResult<List<EmployeeCustodyReportDto>>> GetEmployeeCustodyReportAsync();
     }
 }
