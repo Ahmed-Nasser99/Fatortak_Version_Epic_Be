@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using System.IO;
+using System.Text.Json;
 using fatortak.Common.Enum;
 using fatortak.Context;
 using fatortak.Dtos.Company;
@@ -251,7 +252,7 @@ namespace fatortak.Services.InvoiceService
                         invoice.AmountPaid = invoice.Total;
                         invoice.PaidAt = DateTime.UtcNow;
 
-                        await RegisterPaymentAsync(invoice, invoice.Total);
+                        await RegisterPaymentAsync(invoice, invoice.Total, "Cash", null, dto.PaymentAccountId);
                     }
                     else if (dto.NumberOfInstallments > 0)
                     {
@@ -293,7 +294,20 @@ namespace fatortak.Services.InvoiceService
                     .OrderByDescending(i => i.CreatedAt)
                     .FirstOrDefaultAsync();
 
-                var invoiceNumber = GenerateInvoiceNumber(company.InvoicePrefix, lastInvoice?.InvoiceNumber);
+                var invoiceNumber = !string.IsNullOrEmpty(dto.InvoiceNumber) 
+                    ? dto.InvoiceNumber 
+                    : GenerateInvoiceNumber(company.InvoicePrefix, lastInvoice?.InvoiceNumber);
+
+                if (dto.Items == null || !dto.Items.Any())
+                {
+                    dto.Items = ParseJsonFromForm<InvoiceItemCreateDto>("items");
+                }
+
+                if ((dto.Installments == null || !dto.Installments.Any()) && dto.NumberOfInstallments > 0)
+                {
+                    dto.Installments = ParseJsonFromForm<InstallmentCreateDto>("installments");
+                }
+
 
                 // Create invoice - ALWAYS start as DRAFT
                 var invoice = new Invoice
@@ -705,8 +719,20 @@ namespace fatortak.Services.InvoiceService
                 invoice.InvoiceType = dto.InvoiceType ?? invoice.InvoiceType;
                 invoice.BranchId = dto.BranchId ?? invoice.BranchId;
                 invoice.ProjectId = dto.ProjectId ?? invoice.ProjectId;
+                invoice.InvoiceNumber = dto.InvoiceNumber ?? invoice.InvoiceNumber;
                 invoice.AttachmentUrl = dto.AttachmentUrl ?? invoice.AttachmentUrl;
                 invoice.UpdatedAt = DateTime.UtcNow;
+
+                if (dto.Items == null || !dto.Items.Any())
+                {
+                    dto.Items = ParseJsonFromForm<InvoiceItemCreateDto>("items");
+                }
+
+                if ((dto.Installments == null || !dto.Installments.Any()) && dto.NumberOfInstallments > 0)
+                {
+                    dto.Installments = ParseJsonFromForm<InstallmentUpdateInvoiceDto>("installments");
+                }
+
 
                 // Handle benefits if provided
                 if (dto.Benefits.HasValue)
@@ -888,7 +914,7 @@ namespace fatortak.Services.InvoiceService
                     invoice.AmountPaid = invoice.Total;
                     invoice.Status = InvoiceStatus.Paid.ToString();
 
-                    await RegisterPaymentAsync(invoice, invoice.Total);
+                    await RegisterPaymentAsync(invoice, invoice.Total, "Cash", null, dto.PaymentAccountId);
                 }
                 else
                 {
@@ -1347,14 +1373,30 @@ namespace fatortak.Services.InvoiceService
         private string GenerateInvoiceNumber(string prefix, string lastNumber)
         {
             if (string.IsNullOrEmpty(lastNumber))
-                return $"{prefix}0001";
+            {
+                return string.IsNullOrEmpty(prefix) ? "1" : $"{prefix}1";
+            }
 
-            var numberPart = lastNumber.Replace(prefix, "");
-            if (int.TryParse(numberPart, out int number))
-                return $"{prefix}{(number + 1).ToString("D4")}";
+            // Try to extract the numeric part at the end
+            var match = System.Text.RegularExpressions.Regex.Match(lastNumber, @"\d+$");
+            if (match.Success && long.TryParse(match.Value, out long number))
+            {
+                var prefixPart = lastNumber.Substring(0, match.Index);
+                var nextNumber = number + 1;
+                
+                // If the original had leading zeros (like 0001), try to preserve the length if possible
+                // but if it's a simple number (1), it will just become (2).
+                if (match.Value.StartsWith("0") && match.Value.Length > 1)
+                {
+                    return $"{prefixPart}{nextNumber.ToString().PadLeft(match.Value.Length, '0')}";
+                }
+                
+                return $"{prefixPart}{nextNumber}";
+            }
 
-            return $"{prefix}{DateTime.Now:yyyyMMdd}-0001";
+            return string.IsNullOrEmpty(prefix) ? "1" : $"{prefix}1";
         }
+
 
         private decimal CalculateLineTotal(decimal quantity, decimal unitPrice, decimal discount, decimal vatRate)
         {
@@ -1513,7 +1555,7 @@ namespace fatortak.Services.InvoiceService
                 await _context.SaveChangesAsync();
 
                 // Register payment (Transaction + Accounting Entry)
-                await RegisterPaymentAsync(invoice, dto.Amount, dto.PaymentMethod, dto.AttachmentUrl);
+                await RegisterPaymentAsync(invoice, dto.Amount, dto.PaymentMethod, dto.AttachmentUrl, dto.PaymentAccountId);
 
                 return ServiceResult<bool>.SuccessResult(true);
             }
@@ -1524,13 +1566,14 @@ namespace fatortak.Services.InvoiceService
             }
         }
 
-        private async Task RegisterPaymentAsync(Invoice invoice, decimal amount, string? paymentMethod = "Cash", string? attachmentUrl = null)
+        private async Task RegisterPaymentAsync(Invoice invoice, decimal amount, string? paymentMethod = "Cash", string? attachmentUrl = null, Guid? paymentAccountId = null)
         {
             if (amount <= 0) return;
 
-            var transactionType = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "PaymentReceived" : "PaymentMade";
-            var direction = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Credit" : "Debit";
-            var desc = invoice.InvoiceType == InvoiceTypes.Sell.ToString() ? "Payment received" : "Payment made";
+            var isSalesInvoice = invoice.InvoiceType == InvoiceTypes.Sell.ToString() || invoice.InvoiceType?.ToLower() == "sales" || invoice.InvoiceType?.ToLower() == "sale";
+            var transactionType = isSalesInvoice ? "PaymentReceived" : "PaymentMade";
+            var direction = isSalesInvoice ? "Credit" : "Debit";
+            var desc = isSalesInvoice ? "Payment received" : "Payment made";
 
             // Get current user ID
             var userIdString = _httpContextAccessor.HttpContext?.User?.FindFirst("UserId")?.Value;
@@ -1557,10 +1600,25 @@ namespace fatortak.Services.InvoiceService
             {
                 try
                 {
+                    // Ensure the invoice itself is posted before the payment
+                    var isPosted = await _accountingPostingService.IsInvoicePostedAsync(invoice.Id);
+                    if (!isPosted)
+                    {
+                        _logger.LogInformation("Invoice {InvoiceId} not posted. Posting invoice before recording payment.", invoice.Id);
+                        var invoicePosted = await _accountingPostingService.PostInvoiceAsync(invoice.Id);
+                        if (!invoicePosted)
+                        {
+                            _logger.LogWarning("Failed to auto-post invoice {InvoiceId} before payment registration.", invoice.Id);
+                            // We continue anyway mapping to the transaction, but accounting entries might be out of sync
+                        }
+                    }
+
                     var paymentPosted = await _accountingPostingService.PostPaymentAsync(
                         invoice.Id,
                         amount,
-                        transactionResult.Data.Id); // Pass the Transaction ID as the unique reference
+                        transactionResult.Data.Id,
+                        paymentAccountId,
+                        paymentMethod); // Pass the Transaction ID, Payment Account ID, and Payment Method
 
                     if (paymentPosted)
                     {
@@ -1615,5 +1673,24 @@ namespace fatortak.Services.InvoiceService
                 File.Delete(fullPath);
             }
         }
+        private List<T>? ParseJsonFromForm<T>(string key)
+        {
+            try
+            {
+                var formValue = _httpContextAccessor.HttpContext?.Request.Form[key].ToString();
+                if (string.IsNullOrEmpty(formValue)) return null;
+
+                return JsonSerializer.Deserialize<List<T>>(formValue, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse {Key} from Form as JSON string", key);
+                return null;
+            }
+        }
     }
 }
+

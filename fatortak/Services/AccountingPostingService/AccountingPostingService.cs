@@ -72,7 +72,10 @@ namespace fatortak.Services.AccountingPostingService
                 }
 
                 // Determine if this is a sales or purchase invoice
-                bool isSalesInvoice = invoice.InvoiceType?.ToLower() == InvoiceTypes.Sell.ToString().ToLower();
+        var invoiceTypeStr = invoice.InvoiceType?.ToLower() ?? "";
+        bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() || 
+                             invoiceTypeStr == "sales" || 
+                             invoiceTypeStr == "sale";
 
                 // Get required accounts (these should be configured in Chart of Accounts)
                 // For sales invoice on credit:
@@ -85,29 +88,45 @@ namespace fatortak.Services.AccountingPostingService
                 //   Dr VAT Input (if VAT exists)
                 //   Cr Accounts Payable
 
-                var accountsReceivableAccount = await GetAccountByCodeAsync("1200"); // Accounts Receivable
-                var accountsPayableAccount = await GetAccountByCodeAsync("2100"); // Accounts Payable
-                var salesRevenueAccount = await GetAccountByCodeAsync("4000"); // Sales Revenue
-                var vatPayableAccount = await GetAccountByCodeAsync("2200"); // VAT Payable
-                var vatInputAccount = await GetAccountByCodeAsync("1300"); // VAT Input (for purchases)
+                Account? accountsReceivableAccount = null;
+                Account? accountsPayableAccount = null;
 
                 if (isSalesInvoice)
                 {
-                    if (accountsReceivableAccount == null || salesRevenueAccount == null)
+                    accountsReceivableAccount = invoice.Customer?.AccountId != null
+                        ? await _context.Accounts.FirstOrDefaultAsync(a => a.Id == invoice.Customer.AccountId && a.TenantId == TenantId)
+                        : await GetOrCreateSystemAccountAsync("1200", "Accounts Receivable", AccountType.Asset);
+
+                    if (accountsReceivableAccount == null)
                     {
-                        _logger.LogError("Required accounts not found for sales invoice posting");
+                        _logger.LogError("Accounts Receivable account not found for sales invoice posting");
                         await transaction.RollbackAsync();
                         return false;
                     }
                 }
                 else
                 {
+                    accountsPayableAccount = invoice.Customer?.AccountId != null
+                        ? await _context.Accounts.FirstOrDefaultAsync(a => a.Id == invoice.Customer.AccountId && a.TenantId == TenantId)
+                        : await GetOrCreateSystemAccountAsync("2100", "Accounts Payable", AccountType.Liability);
+
                     if (accountsPayableAccount == null)
                     {
-                        _logger.LogError("Required accounts not found for purchase invoice posting");
+                        _logger.LogError("Accounts Payable account not found for purchase invoice posting");
                         await transaction.RollbackAsync();
                         return false;
                     }
+                }
+
+                var salesRevenueAccount = await GetOrCreateSystemAccountAsync("4000", "Sales Revenue", AccountType.Revenue);
+                var vatPayableAccount = await GetOrCreateSystemAccountAsync("2200", "VAT Payable", AccountType.Liability);
+                var vatInputAccount = await GetOrCreateSystemAccountAsync("1300", "VAT Input", AccountType.Asset);
+
+                if (isSalesInvoice && salesRevenueAccount == null)
+                {
+                    _logger.LogError("Sales Revenue account not found for sales invoice posting");
+                    await transaction.RollbackAsync();
+                    return false;
                 }
 
                 // Generate entry number
@@ -176,10 +195,10 @@ namespace fatortak.Services.AccountingPostingService
                     // Purchase Invoice (On Credit)
                     // For simplicity, posting to a default expense account
                     // In production, this should map to specific expense/inventory accounts based on invoice items
-                    var expenseAccount = await GetAccountByCodeAsync("5000"); // Default Expense Account
+                    var expenseAccount = await GetOrCreateSystemAccountAsync("5000", "General Expenses", AccountType.Expense);
                     if (expenseAccount == null)
                     {
-                        _logger.LogError("Default expense account not found for purchase invoice");
+                        _logger.LogError("Default expense account not found/could not be created for purchase invoice");
                         await transaction.RollbackAsync();
                         return false;
                     }
@@ -383,7 +402,7 @@ namespace fatortak.Services.AccountingPostingService
             }
         }
 
-        public async Task<bool> PostPaymentAsync(Guid invoiceId, decimal amount, Guid? transactionId = null)
+        public async Task<bool> PostPaymentAsync(Guid invoiceId, decimal amount, Guid? transactionId = null, Guid? paymentAccountId = null, string? paymentMethod = null)
         {
             var existingTransaction = _context.Database.CurrentTransaction;
             var transaction = existingTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
@@ -415,16 +434,83 @@ namespace fatortak.Services.AccountingPostingService
                     return false;
                 }
 
-                // Customer Payment:
-                //   Dr Cash/Bank Account
-                //   Cr Accounts Receivable
+                // Determine if this is a sales or purchase invoice payment
+                var invoiceTypeStr = invoice.InvoiceType?.ToLower() ?? "";
+                bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() || 
+                                     invoiceTypeStr == "sales" || 
+                                     invoiceTypeStr == "sale";
 
-                var accountsReceivableAccount = await GetAccountByCodeAsync("1200"); // Accounts Receivable
-                var cashAccount = await GetAccountByCodeAsync("1000"); // Cash Account
+                // Get accounts
+                Account? accountsReceivableAccount = null;
+                Account? accountsPayableAccount = null;
+                Account? cashOrBankAccount = null;
 
-                if (accountsReceivableAccount == null || cashAccount == null)
+                if (isSalesInvoice)
                 {
-                    _logger.LogError("Required accounts not found for payment posting");
+                    // Customer Payment (Sales):
+                    //   Dr Cash/Bank Account
+                    //   Cr Accounts Receivable
+                    accountsReceivableAccount = invoice.Customer?.AccountId != null
+                        ? await _context.Accounts.FirstOrDefaultAsync(a => a.Id == invoice.Customer.AccountId && a.TenantId == TenantId)
+                        : await GetOrCreateSystemAccountAsync("1200", "Accounts Receivable", AccountType.Asset);
+
+                    if (accountsReceivableAccount == null)
+                    {
+                        _logger.LogError("Accounts Receivable account not found for payment posting");
+                        await transaction.RollbackAsync();
+                        return false;
+                    }
+                }
+                else
+                {
+                    // Supplier Payment (Purchase):
+                    //   Dr Accounts Payable
+                    //   Cr Cash/Bank Account
+                    accountsPayableAccount = invoice.Customer?.AccountId != null
+                        ? await _context.Accounts.FirstOrDefaultAsync(a => a.Id == invoice.Customer.AccountId && a.TenantId == TenantId)
+                        : await GetOrCreateSystemAccountAsync("2100", "Accounts Payable", AccountType.Liability);
+
+                    if (accountsPayableAccount == null)
+                    {
+                        _logger.LogError("Accounts Payable account not found for payment posting");
+                        await transaction.RollbackAsync();
+                        return false;
+                    }
+                }
+
+                // Use provided paymentAccountId or fallback to default Cash (1000)
+                if (paymentAccountId.HasValue)
+                {
+                    cashOrBankAccount = await _context.Accounts
+                        .FirstOrDefaultAsync(a => a.Id == paymentAccountId.Value && a.TenantId == TenantId);
+                }
+                
+                if (cashOrBankAccount == null)
+                {
+                    // Map "Cash" to account 1000, and everything else (BankTransfer, Cheque, etc.) to account 1100
+                    if (!string.IsNullOrEmpty(paymentMethod) && paymentMethod.Equals("Cash", StringComparison.OrdinalIgnoreCase))
+                    {
+                        cashOrBankAccount = await GetOrCreateSystemAccountAsync("1000", "Cash", AccountType.Asset);
+                    }
+                    else
+                    {
+                        cashOrBankAccount = await GetOrCreateSystemAccountAsync("1100", "Bank Account", AccountType.Asset);
+                    }
+                    
+                    // Final backup fallback
+                    if (cashOrBankAccount == null)
+                    {
+                        cashOrBankAccount = await GetOrCreateSystemAccountAsync("1000", "Cash", AccountType.Asset);
+                    }
+                }
+
+
+                if ((isSalesInvoice && accountsReceivableAccount == null) || 
+                    (!isSalesInvoice && accountsPayableAccount == null) || 
+                    cashOrBankAccount == null)
+                {
+                    _logger.LogError("Required accounts not found for payment posting (Invoice: {InvoiceId}, Type: {Type})", 
+                        invoiceId, isSalesInvoice ? "Sales" : "Purchase");
                     await transaction.RollbackAsync();
                     return false;
                 }
@@ -441,7 +527,7 @@ namespace fatortak.Services.AccountingPostingService
                     ReferenceType = JournalEntryReferenceType.Payment,
                     ReferenceId = referenceId,
                     ProjectId = invoice.ProjectId,
-                    Description = $"Payment for Invoice {invoice.InvoiceNumber} - {invoice.Customer?.Name ?? "Customer"}",
+                    Description = $"{(isSalesInvoice ? "Payment received" : "Payment made")} for Invoice {invoice.InvoiceNumber} - {invoice.Customer?.Name ?? "Customer"}",
                     IsPosted = true,
                     PostedAt = DateTime.UtcNow,
                     PostedBy = CurrentUserId,
@@ -451,27 +537,61 @@ namespace fatortak.Services.AccountingPostingService
 
                 _context.JournalEntries.Add(journalEntry);
 
-                // Dr Cash Account
-                _context.JournalEntryLines.Add(new JournalEntryLine
-                {
-                    Id = Guid.NewGuid(),
-                    JournalEntryId = journalEntry.Id,
-                    AccountId = cashAccount.Id,
-                    Debit = amount,
-                    Credit = 0,
-                    Description = $"Payment received for Invoice {invoice.InvoiceNumber}"
-                });
+                _logger.LogInformation("Posting payment for Invoice {InvoiceId}. Amount: {Amount}, Method: {Method}, Account: {AccountName} ({AccountCode}), Sales: {IsSales}", 
+                    invoiceId, amount, paymentMethod, cashOrBankAccount.Name, cashOrBankAccount.AccountCode, isSalesInvoice);
 
-                // Cr Accounts Receivable
-                _context.JournalEntryLines.Add(new JournalEntryLine
+                if (isSalesInvoice)
                 {
-                    Id = Guid.NewGuid(),
-                    JournalEntryId = journalEntry.Id,
-                    AccountId = accountsReceivableAccount.Id,
-                    Debit = 0,
-                    Credit = amount,
-                    Description = $"Reduction of receivable for Invoice {invoice.InvoiceNumber}"
-                });
+                    _logger.LogInformation("Sales Payment: Debiting {CashAccount} ({CashCode}), Crediting {ArAccount} ({ArCode})", 
+                        cashOrBankAccount.Name, cashOrBankAccount.AccountCode, accountsReceivableAccount.Name, accountsReceivableAccount.AccountCode);
+                    // Dr Cash/Bank Account
+                    _context.JournalEntryLines.Add(new JournalEntryLine
+                    {
+                        Id = Guid.NewGuid(),
+                        JournalEntryId = journalEntry.Id,
+                        AccountId = cashOrBankAccount.Id,
+                        Debit = amount,
+                        Credit = 0,
+                        Description = $"Payment received for Invoice {invoice.InvoiceNumber}"
+                    });
+
+                    // Cr Accounts Receivable
+                    _context.JournalEntryLines.Add(new JournalEntryLine
+                    {
+                        Id = Guid.NewGuid(),
+                        JournalEntryId = journalEntry.Id,
+                        AccountId = accountsReceivableAccount.Id,
+                        Debit = 0,
+                        Credit = amount,
+                        Description = $"Reduction of receivable for Invoice {invoice.InvoiceNumber}"
+                    });
+                }
+                else
+                {
+                    _logger.LogInformation("Purchase Payment: Debiting {ApAccount} ({ApCode}), Crediting {CashAccount} ({CashCode})", 
+                        accountsPayableAccount.Name, accountsPayableAccount.AccountCode, cashOrBankAccount.Name, cashOrBankAccount.AccountCode);
+                    // Dr Accounts Payable
+                    _context.JournalEntryLines.Add(new JournalEntryLine
+                    {
+                        Id = Guid.NewGuid(),
+                        JournalEntryId = journalEntry.Id,
+                        AccountId = accountsPayableAccount.Id,
+                        Debit = amount,
+                        Credit = 0,
+                        Description = $"Payment made for Purchase Invoice {invoice.InvoiceNumber}"
+                    });
+
+                    // Cr Cash/Bank Account
+                    _context.JournalEntryLines.Add(new JournalEntryLine
+                    {
+                        Id = Guid.NewGuid(),
+                        JournalEntryId = journalEntry.Id,
+                        AccountId = cashOrBankAccount.Id,
+                        Debit = 0,
+                        Credit = amount,
+                        Description = $"Reduction of cash/bank for Purchase Invoice {invoice.InvoiceNumber}"
+                    });
+                }
 
                 await _context.SaveChangesAsync();
                 if (transaction != null) await transaction.CommitAsync();
@@ -521,10 +641,41 @@ namespace fatortak.Services.AccountingPostingService
                 .FirstOrDefaultAsync(a => a.TenantId == TenantId && a.AccountCode == accountCode && a.IsActive);
         }
 
-        private async Task<Account?> GetAccountByNameAsync(string accountName)
+
+        private async Task<Account?> GetOrCreateSystemAccountAsync(string code, string defaultName, AccountType type)
         {
-            return await _context.Accounts
-                .FirstOrDefaultAsync(a => a.TenantId == TenantId && a.Name.Contains(accountName) && a.IsActive);
+            try
+            {
+                var account = await GetAccountByCodeAsync(code);
+                if (account != null) return account;
+
+                _logger.LogInformation("System account {Code} ({Name}) missing for tenant {TenantId}. Creating it.", code, defaultName, TenantId);
+
+                account = new Account
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = TenantId,
+                    AccountCode = code,
+                    Name = defaultName,
+                    AccountType = type,
+                    Level = 0,
+                    IsActive = true,
+                    IsPostable = true,
+                    IsSystem = true,
+                    Description = $"System account for {defaultName}",
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedBy = CurrentUserId
+                };
+
+                _context.Accounts.Add(account);
+                await _context.SaveChangesAsync();
+                return account;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting or creating system account {Code}", code);
+                return null;
+            }
         }
 
         private async Task<string> GenerateEntryNumberAsync()

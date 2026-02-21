@@ -857,7 +857,7 @@ namespace fatortak.Services.ReportsService
                                   jel.JournalEntry.Date < filter.StartDate &&
                                   jel.Account.AccountCode.StartsWith(arAccountCode))
                     .Where(jel => 
-                        (jel.JournalEntry.ReferenceId != null && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.CustomerId == filter.CustomerId && i.InvoiceType == filter.InvoiceType)) ||
+                        (jel.JournalEntry.ReferenceId != null && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.CustomerId == filter.CustomerId && (i.InvoiceType == filter.InvoiceType || (filter.InvoiceType == "Sell" && (i.InvoiceType == "Sales" || i.InvoiceType == "Sale"))))) ||
                         (jel.JournalEntry.ProjectId != null && _context.Projects.Any(p => p.Id == jel.JournalEntry.ProjectId && p.CustomerId == filter.CustomerId))
                     )
                     .SumAsync(jel => jel.Debit - jel.Credit);
@@ -880,7 +880,7 @@ namespace fatortak.Services.ReportsService
                                   jel.JournalEntry.Date <= filter.EndDate &&
                                   jel.Account.AccountCode.StartsWith(arAccountCode))
                     .Where(jel => 
-                        (jel.JournalEntry.ReferenceId != null && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.CustomerId == filter.CustomerId && i.InvoiceType == filter.InvoiceType)) ||
+                        (jel.JournalEntry.ReferenceId != null && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.CustomerId == filter.CustomerId && (i.InvoiceType == filter.InvoiceType || (filter.InvoiceType == "Sell" && (i.InvoiceType == "Sales" || i.InvoiceType == "Sale"))))) ||
                         (jel.JournalEntry.ProjectId != null && _context.Projects.Any(p => p.Id == jel.JournalEntry.ProjectId && p.CustomerId == filter.CustomerId))
                     )
                     .OrderBy(jel => jel.JournalEntry.Date)
@@ -893,8 +893,8 @@ namespace fatortak.Services.ReportsService
                         ProjectId = jel.JournalEntry.ProjectId,
                         ProjectName = jel.JournalEntry.Project != null ? jel.JournalEntry.Project.Name : null,
                         // If it's an Invoice JE, it adds to AR. If it's a Payment JE, it reduces AR.
-                        InvoiceAmount = jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Invoice ? (filter.InvoiceType == InvoiceTypes.Sell.ToString() ? jel.Debit : -jel.Credit) : 0,
-                        PaymentAmount = jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Payment ? (filter.InvoiceType == InvoiceTypes.Sell.ToString() ? -jel.Credit : jel.Debit) : 0,
+                        InvoiceAmount = jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Invoice ? ((filter.InvoiceType == InvoiceTypes.Sell.ToString() || filter.InvoiceType == "Sales" || filter.InvoiceType == "Sale") ? jel.Debit : -jel.Credit) : 0,
+                        PaymentAmount = jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Payment ? ((filter.InvoiceType == InvoiceTypes.Sell.ToString() || filter.InvoiceType == "Sales" || filter.InvoiceType == "Sale") ? -jel.Credit : jel.Debit) : 0,
                         OrderPriority = jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Invoice ? 1 : 2
                     });
 

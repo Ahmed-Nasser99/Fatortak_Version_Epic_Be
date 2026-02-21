@@ -87,6 +87,7 @@ namespace fatortak.Services.DashboardService
                                   jel.JournalEntry.Date <= monthEnd &&
                                   (!branchId.HasValue || jel.JournalEntry.ProjectId == null) &&
                                   (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId) &&
+                                  jel.JournalEntry.ReferenceType != JournalEntryReferenceType.Invoice &&
                                   jel.Account.AccountType == AccountType.Expense)
                     .SumAsync(jel => jel.Debit - jel.Credit);
 
@@ -128,7 +129,7 @@ namespace fatortak.Services.DashboardService
 
             // ✅ Total Expenses (AccountType.Expense)
             stats.TotalExpenses = await linesQuery
-                .Where(jel => jel.Account.AccountType == AccountType.Expense)
+                .Where(jel => jel.Account.AccountType == AccountType.Expense && jel.JournalEntry.ReferenceType != JournalEntryReferenceType.Invoice)
                 .SumAsync(jel => jel.Debit - jel.Credit);
 
             stats.NetIncome = stats.TotalRevenue - stats.TotalExpenses;
@@ -185,9 +186,9 @@ namespace fatortak.Services.DashboardService
 
             stats.OverdueInvoices = await _context.Invoices
                 .CountAsync(i => i.TenantId == _tenantId &&
-                            i.CreatedAt >= startDate &&
-                            i.CreatedAt <= endDate &&
-                                 i.InvoiceType == InvoiceTypes.Sell.ToString() &&
+                             i.CreatedAt >= startDate &&
+                             i.CreatedAt <= endDate &&
+                                 (i.InvoiceType == InvoiceTypes.Sell.ToString() || i.InvoiceType.ToLower() == "sales" || i.InvoiceType.ToLower() == "sale") &&
                                  i.Status == InvoiceStatus.Overdue.ToString() &&
                                  (!branchId.HasValue || i.BranchId == branchId) &&
                                  (!projectId.HasValue || i.ProjectId == projectId));
