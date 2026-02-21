@@ -422,6 +422,13 @@ namespace fatortak.Services.InvoiceService
                     }
                 }
 
+                // Call PostInvoiceAsync for non-draft, non-cancelled statuses to ensure AR balance is updated immediately
+                var activeStatusCreate = new[] { InvoiceStatus.Pending.ToString(), InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.Paid.ToString(), InvoiceStatus.Overdue.ToString(), InvoiceStatus.Posted.ToString() };
+                if (activeStatusCreate.Contains(invoice.Status))
+                {
+                    await _accountingPostingService.PostInvoiceAsync(invoice.Id);
+                }
+
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
@@ -868,6 +875,14 @@ namespace fatortak.Services.InvoiceService
 
                 // Step 6: Update the invoice
                 _context.Invoices.Update(invoice);
+
+                // Call PostInvoiceAsync for non-draft, non-cancelled statuses to ensure AR balance is updated immediately
+                var activeStatusUpdate = new[] { InvoiceStatus.Pending.ToString(), InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.Paid.ToString(), InvoiceStatus.Overdue.ToString(), InvoiceStatus.Posted.ToString() };
+                if (activeStatusUpdate.Contains(invoice.Status))
+                {
+                    await _accountingPostingService.PostInvoiceAsync(invoice.Id);
+                }
+
                 await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
@@ -1211,6 +1226,13 @@ namespace fatortak.Services.InvoiceService
                             foreach(var item in invoice.InvoiceItems) if(item.Item != null) item.Item.Quantity -= item.Quantity;
                         }
                     }
+                }
+
+                // Post to AR if transitioning to an active status
+                var activeStatusTransitions = new[] { InvoiceStatus.Pending.ToString(), InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.Paid.ToString(), InvoiceStatus.Overdue.ToString(), InvoiceStatus.Posted.ToString() };
+                if (activeStatusTransitions.Contains(status))
+                {
+                    await _accountingPostingService.PostInvoiceAsync(invoiceId);
                 }
 
                 await _context.SaveChangesAsync();

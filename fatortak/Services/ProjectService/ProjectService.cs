@@ -292,7 +292,18 @@ namespace fatortak.Services.ProjectService
 
             if (existingInvoice != null)
             {
-                _logger.LogInformation("Invoice already exists for project {ProjectId}, skipping duplicate generation.", projectId);
+                // If existing invoice is Draft, move it to Posted to trigger accounting
+                if (existingInvoice.Status == InvoiceStatus.Draft.ToString())
+                {
+                    existingInvoice.Status = InvoiceStatus.Posted.ToString();
+                    existingInvoice.UpdatedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+                }
+
+                // Ensure it's posted to accounting
+                await _accountingPostingService.PostInvoiceAsync(existingInvoice.Id);
+
+                _logger.LogInformation("Invoice already exists for project {ProjectId}, ensured it is posted.", projectId);
                 return existingInvoice.Id;
             }
 
