@@ -85,9 +85,8 @@ namespace fatortak.Services.DashboardService
                                   jel.JournalEntry.IsPosted &&
                                   jel.JournalEntry.Date >= monthStart &&
                                   jel.JournalEntry.Date <= monthEnd &&
-                                  (!branchId.HasValue || jel.JournalEntry.ProjectId == null) &&
+                                  (!branchId.HasValue || (jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Invoice && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.BranchId == branchId))) &&
                                   (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId) &&
-                                  jel.JournalEntry.ReferenceType != JournalEntryReferenceType.Invoice &&
                                   jel.Account.AccountType == AccountType.Expense)
                     .SumAsync(jel => jel.Debit - jel.Credit);
 
@@ -119,7 +118,6 @@ namespace fatortak.Services.DashboardService
                               jel.JournalEntry.IsPosted &&
                               jel.JournalEntry.Date >= startDate &&
                               jel.JournalEntry.Date <= endDate &&
-                              (!branchId.HasValue || jel.JournalEntry.ProjectId == null) &&
                               (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId));
 
             // ✅ Total Revenue (AccountType.Revenue)
@@ -129,7 +127,7 @@ namespace fatortak.Services.DashboardService
 
             // ✅ Total Expenses (AccountType.Expense)
             stats.TotalExpenses = await linesQuery
-                .Where(jel => jel.Account.AccountType == AccountType.Expense && jel.JournalEntry.ReferenceType != JournalEntryReferenceType.Invoice)
+                .Where(jel => jel.Account.AccountType == AccountType.Expense)
                 .SumAsync(jel => jel.Debit - jel.Credit);
 
             stats.NetIncome = stats.TotalRevenue - stats.TotalExpenses;
@@ -142,7 +140,6 @@ namespace fatortak.Services.DashboardService
                 .Where(jel => jel.JournalEntry.TenantId == _tenantId &&
                               jel.JournalEntry.IsPosted &&
                               jel.JournalEntry.Date <= endDate &&
-                              (!branchId.HasValue || jel.JournalEntry.ProjectId == null) &&
                               (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId));
 
             // AR (Accounts Receivable - Code 1200)
@@ -236,10 +233,16 @@ namespace fatortak.Services.DashboardService
                 Pending = stats.TotalReceivables
             };
 
-            // Expense Paid = Payments (Debits to AP) + Direct Cash Expenses (Credits to Cash from Expense)
-            var expensePaid = await linesQuery
+            // Expense Paid = Payments made to suppliers (Debits to AP) + Direct cash expenses
+            var apPayments = await linesQuery
                 .Where(jel => jel.Account.AccountCode.StartsWith("2100"))
                 .SumAsync(jel => jel.Debit);
+                
+            var directExpenses = await linesQuery
+                .Where(jel => jel.Account.AccountType == AccountType.Expense && jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Expense)
+                .SumAsync(jel => jel.Debit);
+            
+            var expensePaid = apPayments + directExpenses;
 
             stats.ExpenseBreakdown = new ExpenseBreakdown
             {

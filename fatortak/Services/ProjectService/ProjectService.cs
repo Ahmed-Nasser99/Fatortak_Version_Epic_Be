@@ -1,12 +1,12 @@
+using fatortak.Common.Enum;
 using fatortak.Context;
 using fatortak.Dtos;
+using fatortak.Dtos.Project;
 using fatortak.Dtos.Shared;
 using fatortak.Entities;
-using fatortak.Common.Enum;
-using Microsoft.EntityFrameworkCore;
-using fatortak.Dtos.Project;
-using fatortak.Services.AccountingPostingService;
 using fatortak.Helpers;
+using fatortak.Services.AccountingPostingService;
+using Microsoft.EntityFrameworkCore;
 
 namespace fatortak.Services.ProjectService
 {
@@ -18,8 +18,8 @@ namespace fatortak.Services.ProjectService
         private readonly IAccountingPostingService _accountingPostingService;
 
         public ProjectService(
-            ApplicationDbContext context, 
-            IHttpContextAccessor httpContextAccessor, 
+            ApplicationDbContext context,
+            IHttpContextAccessor httpContextAccessor,
             ILogger<ProjectService> logger,
             IAccountingPostingService accountingPostingService)
         {
@@ -182,8 +182,8 @@ namespace fatortak.Services.ProjectService
                 project.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
-                
-                 if (dto.CustomerId.HasValue)
+
+                if (dto.CustomerId.HasValue)
                 {
                     project.Customer = await _context.Customers.FindAsync(dto.CustomerId);
                 }
@@ -212,7 +212,7 @@ namespace fatortak.Services.ProjectService
                 {
                     if (line.Quantity <= 0 || line.UnitPrice <= 0)
                         return ServiceResult<ProjectDto>.Failure("Quantity and Unit Price must be greater than 0");
-                    
+
                     contractValue += Math.Round(line.Quantity * line.UnitPrice, 2);
                 }
 
@@ -267,7 +267,7 @@ namespace fatortak.Services.ProjectService
                 project.Customer = await _context.Customers.FindAsync(command.ClientId);
                 var dto = MapToDto(project);
                 dto.InvoiceId = invoiceId;
-                
+
                 return ServiceResult<ProjectDto>.SuccessResult(dto);
             }
             catch (Exception ex)
@@ -449,22 +449,26 @@ namespace fatortak.Services.ProjectService
             var dto = MapToDto(project);
 
             dto.TotalInvoiced = await _context.Invoices
-                .Where(i => i.ProjectId == project.Id && i.TenantId == TenantId)
+                .Where(i => i.ProjectId == project.Id && i.TenantId == TenantId && (i.InvoiceType == InvoiceTypes.Sell.ToString() || i.InvoiceType.ToLower() == "sales" || i.InvoiceType.ToLower() == "sale"))
                 .SumAsync(i => (decimal?)i.Total) ?? 0;
 
-            dto.TotalExpenses = await _context.Expenses
+            var purchaseInvoiceExpenses = await _context.Invoices
+                .Where(i => i.ProjectId == project.Id && i.TenantId == TenantId && (i.InvoiceType == InvoiceTypes.Buy.ToString() || i.InvoiceType.ToLower() == "purchase"))
+                .SumAsync(i => (decimal?)i.Total) ?? 0;
+
+            dto.TotalExpenses = (await _context.Expenses
                 .Where(e => e.ProjectId == project.Id && e.TenantId == TenantId)
-                .SumAsync(e => (decimal?)e.Total) ?? 0;
+                .SumAsync(e => (decimal?)e.Total) ?? 0) + purchaseInvoiceExpenses;
 
             dto.TotalAdvances = await _context.JournalEntryLines
-                .Where(l => l.JournalEntry.ProjectId == project.Id && 
-                            l.JournalEntry.TenantId == TenantId && 
+                .Where(l => l.JournalEntry.ProjectId == project.Id &&
+                            l.JournalEntry.TenantId == TenantId &&
                             l.JournalEntry.ReferenceType == JournalEntryReferenceType.Manual)
                 .SumAsync(l => (decimal?)l.Debit) ?? 0;
 
             dto.TotalCollected = await _context.JournalEntryLines
-                .Where(l => l.JournalEntry.ProjectId == project.Id && 
-                            l.JournalEntry.TenantId == TenantId && 
+                .Where(l => l.JournalEntry.ProjectId == project.Id &&
+                            l.JournalEntry.TenantId == TenantId &&
                             l.JournalEntry.ReferenceType == JournalEntryReferenceType.Payment &&
                             l.Credit > 0)
                 .SumAsync(l => (decimal?)l.Credit) ?? 0;

@@ -138,7 +138,7 @@ namespace fatortak.Services.AccountingPostingService
                     TenantId = TenantId,
                     EntryNumber = entryNumber,
                     Date = invoice.IssueDate.Date,
-                    ReferenceType = JournalEntryReferenceType.Invoice,
+                    ReferenceType = isSalesInvoice ? JournalEntryReferenceType.Invoice : JournalEntryReferenceType.PurchaseInvoice,
                     ReferenceId = invoiceId,
                     ProjectId = invoice.ProjectId,
                     Description = $"Invoice {invoice.InvoiceNumber} - {invoice.Customer?.Name ?? "Customer"}",
