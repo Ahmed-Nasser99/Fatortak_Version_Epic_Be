@@ -42,6 +42,7 @@
         // New fields for enhanced dashboard
         public decimal CurrentBalance { get; set; }
         public decimal TotalCashAvailable { get; set; }
+        public decimal TotalBankAvailable { get; set; }
         public decimal StockValue { get; set; }
         public decimal TotalReceivables { get; set; }
         public decimal TotalPayables { get; set; }
