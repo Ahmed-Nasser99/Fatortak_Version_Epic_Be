@@ -466,12 +466,28 @@ namespace fatortak.Services.ProjectService
                             l.JournalEntry.ReferenceType == JournalEntryReferenceType.Manual)
                 .SumAsync(l => (decimal?)l.Debit) ?? 0;
 
+            // Revenue Collected (Credits to AR)
             dto.TotalCollected = await _context.JournalEntryLines
                 .Where(l => l.JournalEntry.ProjectId == project.Id &&
                             l.JournalEntry.TenantId == TenantId &&
                             l.JournalEntry.ReferenceType == JournalEntryReferenceType.Payment &&
+                            (l.Account.AccountCode.StartsWith("1200") || l.Account.AccountCode.StartsWith("1210")) &&
                             l.Credit > 0)
                 .SumAsync(l => (decimal?)l.Credit) ?? 0;
+
+            // Payments Made (Credits to Cash/Bank/Custody when paying suppliers/expenses)
+            // This captures payments for purchase invoices which also have ReferenceType.Payment
+            dto.TotalPaid = await _context.JournalEntryLines
+                .Where(l => l.JournalEntry.ProjectId == project.Id &&
+                            l.JournalEntry.TenantId == TenantId &&
+                            l.JournalEntry.ReferenceType == JournalEntryReferenceType.Payment &&
+                            (l.Account.AccountCode.StartsWith("1000") || l.Account.AccountCode.StartsWith("1100") || l.Account.AccountCode.StartsWith("1010")) &&
+                            l.Credit > 0)
+                .SumAsync(l => (decimal?)l.Credit) ?? 0;
+                
+            // Direct expenses paid are already captured if they hit cash directly
+            // but usually we want to distinguish between payments for invoices and direct expenses.
+            // For now, TotalPaid is total outbound cash.
 
             dto.NetProfit = dto.TotalInvoiced - dto.TotalExpenses;
 

@@ -154,16 +154,16 @@ namespace fatortak.Services.DashboardService
 
             stats.PendingAmount = stats.TotalReceivables;
 
-            // ✅ Cash Available (Cash 1000 + Bank 1100)
+            // ✅ Cash Available (Cash 1000)
             stats.TotalCashAvailable = await cumulativeQuery
-                .Where(jel => jel.Account.AccountCode.StartsWith("1000") || jel.Account.AccountCode.StartsWith("1100"))
+                .Where(jel => jel.Account.AccountCode.StartsWith("1000"))
                 .SumAsync(jel => jel.Debit - jel.Credit);
 
             stats.TotalBankAvailable = await cumulativeQuery
                 .Where(jel => jel.Account.AccountCode.StartsWith("1100"))
                 .SumAsync(jel => jel.Debit - jel.Credit);
 
-            stats.CurrentBalance = stats.TotalCashAvailable;
+            stats.CurrentBalance = stats.TotalCashAvailable + stats.TotalBankAvailable;
 
             // Non-financial counts (still document-based for now)
             stats.TotalInvoices = await _context.Invoices
