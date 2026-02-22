@@ -14,5 +14,6 @@ namespace fatortak.Services.ProjectService
         Task<ServiceResult<ProjectDto>> UpdateProjectAsync(Guid projectId, UpdateProjectDto dto);
         Task<ServiceResult<bool>> DeleteProjectAsync(Guid projectId);
         Task<ServiceResult<ProjectDto>> CreateProjectWithContractAsync(CreateProjectWithContractCommand command);
+        Task CompleteProjectIfInvoicesPaidAsync(Guid projectId);
     }
 }

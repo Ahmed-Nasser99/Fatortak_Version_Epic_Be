@@ -144,6 +144,27 @@ namespace fatortak.Services.ProjectService
                     return ServiceResult<ProjectDto>.Failure("Project not found");
 
                 ProjectStatus oldStatus = project.Status;
+
+                // Status Transition Validation
+                if (oldStatus == ProjectStatus.Completed && status != ProjectStatus.Completed)
+                    return ServiceResult<ProjectDto>.Failure("Cannot change status of a completed project.");
+
+                if (oldStatus == ProjectStatus.Cancelled)
+                    return ServiceResult<ProjectDto>.Failure("Cannot change status of a cancelled project.");
+
+                if (status == ProjectStatus.Completed)
+                {
+                    // Check if all sales invoices are paid
+                    var hasUnpaidInvoices = await _context.Invoices
+                        .AnyAsync(i => i.ProjectId == projectId && 
+                                     i.TenantId == TenantId && 
+                                     (i.InvoiceType == InvoiceTypes.Sell.ToString() || i.InvoiceType.ToLower() == "sales" || i.InvoiceType.ToLower() == "sale") &&
+                                     i.Status != InvoiceStatus.Paid.ToString());
+
+                    if (hasUnpaidInvoices)
+                        return ServiceResult<ProjectDto>.Failure("Cannot complete project while there are unpaid invoices.");
+                }
+
                 project.Status = status;
                 project.UpdatedAt = DateTime.UtcNow;
 
@@ -174,6 +195,28 @@ namespace fatortak.Services.ProjectService
                 if (project == null)
                     return ServiceResult<ProjectDto>.Failure("Project not found");
 
+                ProjectStatus oldStatus = project.Status;
+
+                // Status Transition Validation
+                if (oldStatus == ProjectStatus.Completed && dto.Status != ProjectStatus.Completed)
+                    return ServiceResult<ProjectDto>.Failure("Cannot change status of a completed project.");
+
+                if (oldStatus == ProjectStatus.Cancelled)
+                    return ServiceResult<ProjectDto>.Failure("Cannot change status of a cancelled project.");
+
+                if (dto.Status == ProjectStatus.Completed)
+                {
+                    // Check if all sales invoices are paid
+                    var hasUnpaidInvoices = await _context.Invoices
+                        .AnyAsync(i => i.ProjectId == projectId && 
+                                     i.TenantId == TenantId && 
+                                     (i.InvoiceType == InvoiceTypes.Sell.ToString() || i.InvoiceType.ToLower() == "sales" || i.InvoiceType.ToLower() == "sale") &&
+                                     i.Status != InvoiceStatus.Paid.ToString());
+
+                    if (hasUnpaidInvoices)
+                        return ServiceResult<ProjectDto>.Failure("Cannot complete project while there are unpaid invoices.");
+                }
+
                 project.Name = dto.Name;
                 project.Description = dto.Description;
                 project.CustomerId = dto.CustomerId;
@@ -196,6 +239,7 @@ namespace fatortak.Services.ProjectService
                 return ServiceResult<ProjectDto>.Failure("Failed to update project");
             }
         }
+
 
         public async Task<ServiceResult<ProjectDto>> CreateProjectWithContractAsync(CreateProjectWithContractCommand command)
         {
@@ -414,6 +458,37 @@ namespace fatortak.Services.ProjectService
             {
                 _logger.LogError(ex, "Error deleting project {ProjectId}", projectId);
                 return ServiceResult<bool>.Failure("Failed to delete project due to a database constraint or system error.");
+            }
+        }
+
+        public async Task CompleteProjectIfInvoicesPaidAsync(Guid projectId)
+        {
+            try
+            {
+                var project = await _context.Projects
+                    .FirstOrDefaultAsync(p => p.Id == projectId && p.TenantId == TenantId);
+
+                if (project == null || project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
+                    return;
+
+                // Check if ALL sales invoices are Paid
+                var hasUnpaidInvoices = await _context.Invoices
+                    .AnyAsync(i => i.ProjectId == projectId && 
+                                 i.TenantId == TenantId &&
+                                 (i.InvoiceType == InvoiceTypes.Sell.ToString() || i.InvoiceType.ToLower() == "sales" || i.InvoiceType.ToLower() == "sale") &&
+                                 i.Status != InvoiceStatus.Paid.ToString());
+
+                if (!hasUnpaidInvoices)
+                {
+                    _logger.LogInformation("Automatically completing project {ProjectId} as all invoices are paid.", projectId);
+                    project.Status = ProjectStatus.Completed;
+                    project.UpdatedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking automatic project completion for {ProjectId}", projectId);
             }
         }
 

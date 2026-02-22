@@ -1,7 +1,3 @@
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using System.IO;
-using System.Text.Json;
 using fatortak.Common.Enum;
 using fatortak.Context;
 using fatortak.Dtos.Company;
@@ -9,10 +5,12 @@ using fatortak.Dtos.Invoice;
 using fatortak.Dtos.Shared;
 using fatortak.Entities;
 using fatortak.Helpers;
-using Microsoft.EntityFrameworkCore;
-using fatortak.Services.TransactionService;
 using fatortak.Services.AccountingPostingService;
 using fatortak.Services.AccountingService;
+using fatortak.Services.ProjectService;
+using fatortak.Services.TransactionService;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace fatortak.Services.InvoiceService
 {
@@ -25,6 +23,7 @@ namespace fatortak.Services.InvoiceService
         private readonly ITransactionService _transactionService;
         private readonly IAccountingPostingService _accountingPostingService;
         private readonly IAccountingService _accountingService;
+        private readonly IProjectService _projectService;
 
         public InvoiceService(
             ApplicationDbContext context,
@@ -33,7 +32,8 @@ namespace fatortak.Services.InvoiceService
             IWebHostEnvironment hostingEnvironment,
             ITransactionService transactionService,
             IAccountingPostingService accountingPostingService,
-            IAccountingService accountingService)
+            IAccountingService accountingService,
+            IProjectService projectService)
         {
             _context = context;
             _logger = logger;
@@ -42,6 +42,7 @@ namespace fatortak.Services.InvoiceService
             _transactionService = transactionService;
             _accountingPostingService = accountingPostingService;
             _accountingService = accountingService;
+            _projectService = projectService;
         }
 
         private Guid TenantId => GetCurrentTenantId();
@@ -294,8 +295,8 @@ namespace fatortak.Services.InvoiceService
                     .OrderByDescending(i => i.CreatedAt)
                     .FirstOrDefaultAsync();
 
-                var invoiceNumber = !string.IsNullOrEmpty(dto.InvoiceNumber) 
-                    ? dto.InvoiceNumber 
+                var invoiceNumber = !string.IsNullOrEmpty(dto.InvoiceNumber)
+                    ? dto.InvoiceNumber
                     : GenerateInvoiceNumber(company.InvoicePrefix, lastInvoice?.InvoiceNumber);
 
                 if (dto.Items == null || !dto.Items.Any())
@@ -406,7 +407,7 @@ namespace fatortak.Services.InvoiceService
                     if (dto.NumberOfInstallments > 0)
                     {
                         await HandleInstallmentsAsync(invoice, dto);
-                        
+
                         // Status refinement based on DownPayment if not already Paid
                         if (invoice.Status != InvoiceStatus.Paid.ToString())
                         {
@@ -873,6 +874,12 @@ namespace fatortak.Services.InvoiceService
                     }
                 }
 
+                // Trigger project status check if project is linked
+                if (invoice.ProjectId.HasValue && invoice.Status == InvoiceStatus.Paid.ToString())
+                {
+                    await _projectService.CompleteProjectIfInvoicesPaidAsync(invoice.ProjectId.Value);
+                }
+
                 // Step 6: Update the invoice
                 _context.Invoices.Update(invoice);
 
@@ -1107,10 +1114,10 @@ namespace fatortak.Services.InvoiceService
                 {
                     invoice.Customer.LastEngagementDate = DateTime.UtcNow;
                     invoice.PaidAt = DateTime.UtcNow;
-                    
+
                     // Determine the amount to register (if any)
                     decimal amountToPay = invoice.Total - (invoice.AmountPaid ?? 0);
-                    
+
                     // Ensure AmountPaid is set to Total when marked as Paid
                     if (invoice.AmountPaid < invoice.Total)
                     {
@@ -1129,6 +1136,12 @@ namespace fatortak.Services.InvoiceService
                     {
                         await UpdateInventoryForInvoiceAsync(invoice, invoice.InvoiceType);
                     }
+
+                    // Trigger project status check if project is linked
+                    if (invoice.ProjectId.HasValue)
+                    {
+                        await _projectService.CompleteProjectIfInvoicesPaidAsync(invoice.ProjectId.Value);
+                    }
                 }
                 // Handle Cancelled status
                 else if (status == InvoiceStatus.Cancelled.ToString())
@@ -1144,16 +1157,16 @@ namespace fatortak.Services.InvoiceService
 
                     if (liveStates.Contains(oldStatus))
                     {
-                         // Reverse the inventory changes - opposite of original operation
+                        // Reverse the inventory changes - opposite of original operation
                         if (invoice.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower())
                         {
                             // For sell invoices, add back the quantity when cancelled
-                            foreach(var item in invoice.InvoiceItems) if(item.Item != null) item.Item.Quantity += item.Quantity;
+                            foreach (var item in invoice.InvoiceItems) if (item.Item != null) item.Item.Quantity += item.Quantity;
                         }
                         else
                         {
                             // For purchase invoices, subtract the quantity when cancelled
-                            foreach(var item in invoice.InvoiceItems) if(item.Item != null) item.Item.Quantity -= item.Quantity;
+                            foreach (var item in invoice.InvoiceItems) if (item.Item != null) item.Item.Quantity -= item.Quantity;
                         }
 
                         // Handle Financial Reversal (Accounting)
@@ -1164,7 +1177,7 @@ namespace fatortak.Services.InvoiceService
                             {
                                 // Find the journal entry associated with this invoice
                                 var journalEntry = await _context.JournalEntries
-                                    .FirstOrDefaultAsync(je => je.ReferenceId == invoiceId && 
+                                    .FirstOrDefaultAsync(je => je.ReferenceId == invoiceId &&
                                                              je.ReferenceType == JournalEntryReferenceType.Invoice &&
                                                              je.TenantId == TenantId);
 
@@ -1219,11 +1232,11 @@ namespace fatortak.Services.InvoiceService
                         // Reverse inventory changes - same logic as cancellation
                         if (invoice.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower())
                         {
-                            foreach(var item in invoice.InvoiceItems) if(item.Item != null) item.Item.Quantity += item.Quantity;
+                            foreach (var item in invoice.InvoiceItems) if (item.Item != null) item.Item.Quantity += item.Quantity;
                         }
                         else
                         {
-                            foreach(var item in invoice.InvoiceItems) if(item.Item != null) item.Item.Quantity -= item.Quantity;
+                            foreach (var item in invoice.InvoiceItems) if (item.Item != null) item.Item.Quantity -= item.Quantity;
                         }
                     }
                 }
@@ -1292,6 +1305,12 @@ namespace fatortak.Services.InvoiceService
             else
             {
                 installment.Invoice.Status = InvoiceStatus.PartialPaid.ToString();
+            }
+
+            // Trigger project status check if project is linked and invoice is now paid
+            if (installment.Invoice.ProjectId.HasValue && installment.Invoice.Status == InvoiceStatus.Paid.ToString())
+            {
+                await _projectService.CompleteProjectIfInvoicesPaidAsync(installment.Invoice.ProjectId.Value);
             }
 
             // Register the payment
@@ -1405,14 +1424,14 @@ namespace fatortak.Services.InvoiceService
             {
                 var prefixPart = lastNumber.Substring(0, match.Index);
                 var nextNumber = number + 1;
-                
+
                 // If the original had leading zeros (like 0001), try to preserve the length if possible
                 // but if it's a simple number (1), it will just become (2).
                 if (match.Value.StartsWith("0") && match.Value.Length > 1)
                 {
                     return $"{prefixPart}{nextNumber.ToString().PadLeft(match.Value.Length, '0')}";
                 }
-                
+
                 return $"{prefixPart}{nextNumber}";
             }
 
@@ -1578,6 +1597,12 @@ namespace fatortak.Services.InvoiceService
 
                 // Register payment (Transaction + Accounting Entry)
                 await RegisterPaymentAsync(invoice, dto.Amount, dto.PaymentMethod, dto.AttachmentUrl, dto.PaymentAccountId);
+
+                // Trigger project status check if project is linked and invoice is now paid
+                if (invoice.ProjectId.HasValue && invoice.Status == InvoiceStatus.Paid.ToString())
+                {
+                    await _projectService.CompleteProjectIfInvoicesPaidAsync(invoice.ProjectId.Value);
+                }
 
                 return ServiceResult<bool>.SuccessResult(true);
             }
