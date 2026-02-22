@@ -1143,7 +1143,22 @@ namespace fatortak.Services.InvoiceService
                     // Determine the amount to register (if any)
                     decimal amountToPay = invoice.Total - (invoice.AmountPaid ?? 0);
 
-                    // Ensure AmountPaid is set to Total when marked as Paid
+            // Account Balance Validation for Purchase Invoices
+            if (invoice.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower() && amountToPay > 0 && oldStatus != InvoiceStatus.Paid.ToString())
+            {
+                // Fallback to default Cash (1000) for automatic payments
+                var cashAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.AccountCode == "1000" && a.TenantId == TenantId);
+                if (cashAccount != null)
+                {
+                    var balanceResult = await _accountingService.GetAccountBalanceAsync(cashAccount.Id);
+                    if (balanceResult.Success && balanceResult.Data.Balance < amountToPay)
+                    {
+                        return ServiceResult<bool>.Failure($"Insufficient funds in Cash account to mark as Paid. Required: {amountToPay:N2}, Available: {balanceResult.Data.Balance:N2} EGP");
+                    }
+                }
+            }
+
+            // Ensure AmountPaid is set to Total when marked as Paid
                     if (invoice.AmountPaid < invoice.Total)
                     {
                         invoice.AmountPaid = invoice.Total;
@@ -1599,9 +1614,30 @@ namespace fatortak.Services.InvoiceService
 
                 decimal remainingBalance = invoice.Total - (invoice.AmountPaid ?? 0);
                 if (dto.Amount > remainingBalance)
-                    return ServiceResult<bool>.Failure($"Payment amount exceeds the remaining balance of {remainingBalance}.");
+            return ServiceResult<bool>.Failure($"Payment amount exceeds the remaining balance of {remainingBalance}.");
 
-                // Update paid amount
+        // Account Balance Validation for Purchase Invoices
+        if (invoice.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower())
+        {
+            Guid? accountId = dto.PaymentAccountId;
+            if (!accountId.HasValue)
+            {
+                // Fallback to default Cash (1000)
+                var cashAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.AccountCode == "1000" && a.TenantId == TenantId);
+                accountId = cashAccount?.Id;
+            }
+
+            if (accountId.HasValue)
+            {
+                var balanceResult = await _accountingService.GetAccountBalanceAsync(accountId.Value);
+                if (balanceResult.Success && balanceResult.Data.Balance < dto.Amount)
+                {
+                    return ServiceResult<bool>.Failure($"Insufficient funds in {balanceResult.Data.AccountName}. Available: {balanceResult.Data.Balance:N2} EGP");
+                }
+            }
+        }
+
+        // Update paid amount
                 invoice.AmountPaid = (invoice.AmountPaid ?? 0) + dto.Amount;
                 invoice.UpdatedAt = DateTime.UtcNow;
 

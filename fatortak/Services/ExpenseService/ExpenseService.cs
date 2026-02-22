@@ -4,6 +4,7 @@ using fatortak.Dtos.Expense;
 using fatortak.Dtos.Shared;
 using fatortak.Entities;
 using fatortak.Services.AccountingPostingService;
+using fatortak.Services.AccountingService;
 using fatortak.Services.TransactionService;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,6 +18,7 @@ namespace fatortak.Services.ExpenseService
         private readonly IWebHostEnvironment _hostingEnvironment;
         private readonly ITransactionService _transactionService;
         private readonly IAccountingPostingService _accountingPostingService;
+        private readonly IAccountingService _accountingService;
 
         public ExpenseService(
             ApplicationDbContext context,
@@ -24,7 +26,8 @@ namespace fatortak.Services.ExpenseService
             ILogger<ExpenseService> logger,
             IWebHostEnvironment hostingEnvironment,
             ITransactionService transactionService,
-            IAccountingPostingService accountingPostingService)
+            IAccountingPostingService accountingPostingService,
+            IAccountingService accountingService)
         {
             _context = context;
             _httpContextAccessor = httpContextAccessor;
@@ -32,6 +35,7 @@ namespace fatortak.Services.ExpenseService
             _hostingEnvironment = hostingEnvironment;
             _transactionService = transactionService;
             _accountingPostingService = accountingPostingService;
+            _accountingService = accountingService;
         }
 
         private Guid _tenantId =>
@@ -158,6 +162,29 @@ namespace fatortak.Services.ExpenseService
 
                     if (project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
                         return ServiceResult<ExpenseDto>.Failure($"Cannot record expense for a {project.Status.ToString().ToLower()} project.");
+                }
+
+                // Account Balance Validation
+                if (expenseDto.PaymentAccountId.HasValue)
+                {
+                    var balanceResult = await _accountingService.GetAccountBalanceAsync(expenseDto.PaymentAccountId.Value);
+                    if (balanceResult.Success && balanceResult.Data.Balance < expenseDto.Total)
+                    {
+                        return ServiceResult<ExpenseDto>.Failure($"Insufficient funds in {balanceResult.Data.AccountName}. Available: {balanceResult.Data.Balance:N2} EGP");
+                    }
+                }
+                else
+                {
+                    // Fallback to default Cash account (1000) if no account specified
+                    var cashAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.AccountCode == "1000" && a.TenantId == _tenantId);
+                    if (cashAccount != null)
+                    {
+                        var balanceResult = await _accountingService.GetAccountBalanceAsync(cashAccount.Id);
+                        if (balanceResult.Success && balanceResult.Data.Balance < expenseDto.Total)
+                        {
+                            return ServiceResult<ExpenseDto>.Failure($"Insufficient funds in Cash account. Available: {balanceResult.Data.Balance:N2} EGP");
+                        }
+                    }
                 }
 
                 var expense = new Expenses
