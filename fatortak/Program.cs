@@ -157,7 +157,7 @@ namespace fatortak
             builder.Services.AddScoped<IPayrollService, PayrollService>();
             builder.Services.AddScoped<IBranchService, BranchService>();
             builder.Services.AddScoped<IProjectService, ProjectService>();
-            builder.Services.AddScoped<IProjectService, ProjectService>();
+            builder.Services.AddScoped<IProjectExportService, ProjectExportService>();
             builder.Services.AddScoped<IAccountingService, AccountingService>();
             builder.Services.AddScoped<IAccountingPostingService, AccountingPostingService>();
             builder.Services.AddScoped<ICustodyService, CustodyService>();

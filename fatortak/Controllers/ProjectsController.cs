@@ -13,11 +13,16 @@ namespace fatortak.Controllers
     public class ProjectsController : ControllerBase
     {
         private readonly IProjectService _projectService;
+        private readonly IProjectExportService _projectExportService;
         private readonly ILogger<ProjectsController> _logger;
 
-        public ProjectsController(IProjectService projectService, ILogger<ProjectsController> logger)
+        public ProjectsController(
+            IProjectService projectService, 
+            IProjectExportService projectExportService,
+            ILogger<ProjectsController> logger)
         {
             _projectService = projectService;
+            _projectExportService = projectExportService;
             _logger = logger;
         }
 
@@ -78,6 +83,38 @@ namespace fatortak.Controllers
             var result = await _projectService.DeleteProjectAsync(projectId);
             if (!result.Success) return BadRequest(result);
             return Ok(result);
+        }
+
+        [HttpGet("{projectId}/export/pdf")]
+        public async Task<IActionResult> ExportProjectPdf(Guid projectId)
+        {
+            try
+            {
+                var content = await _projectExportService.ExportProjectToPdfAsync(projectId);
+                if (content == null) return NotFound("Project not found");
+                return File(content, "application/pdf", $"Quotation_{projectId}.pdf");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting project to PDF");
+                return BadRequest("Failed to generate PDF");
+            }
+        }
+
+        [HttpGet("{projectId}/export/excel")]
+        public async Task<IActionResult> ExportProjectExcel(Guid projectId)
+        {
+            try
+            {
+                var content = await _projectExportService.ExportProjectToExcelAsync(projectId);
+                if (content == null) return NotFound("Project not found");
+                return File(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Project_{projectId}.xlsx");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting project to Excel");
+                return BadRequest("Failed to generate Excel");
+            }
         }
     }
 }
