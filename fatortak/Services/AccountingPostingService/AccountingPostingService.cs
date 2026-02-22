@@ -47,19 +47,6 @@ namespace fatortak.Services.AccountingPostingService
 
             try
             {
-                // Check if already posted
-                var existingEntry = await _context.JournalEntries
-                    .FirstOrDefaultAsync(je => je.TenantId == TenantId &&
-                                               je.ReferenceType == JournalEntryReferenceType.Invoice &&
-                                               je.ReferenceId == invoiceId &&
-                                               je.IsPosted);
-
-                if (existingEntry != null)
-                {
-                    _logger.LogWarning("Invoice {InvoiceId} has already been posted", invoiceId);
-                    return false;
-                }
-
                 // Load invoice with related data
                 var invoice = await _context.Invoices
                     .Include(i => i.Customer)
@@ -72,10 +59,25 @@ namespace fatortak.Services.AccountingPostingService
                 }
 
                 // Determine if this is a sales or purchase invoice
-        var invoiceTypeStr = invoice.InvoiceType?.ToLower() ?? "";
-        bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() || 
-                             invoiceTypeStr == "sales" || 
-                             invoiceTypeStr == "sale";
+                var invoiceTypeStr = invoice.InvoiceType?.ToLower() ?? "";
+                bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() || 
+                                     invoiceTypeStr == "sales" || 
+                                     invoiceTypeStr == "sale";
+
+                var expectedRefType = isSalesInvoice ? JournalEntryReferenceType.Invoice : JournalEntryReferenceType.PurchaseInvoice;
+
+                // Check if already posted
+                var existingEntry = await _context.JournalEntries
+                    .FirstOrDefaultAsync(je => je.TenantId == TenantId &&
+                                               je.ReferenceType == expectedRefType &&
+                                               je.ReferenceId == invoiceId &&
+                                               je.IsPosted);
+
+                if (existingEntry != null)
+                {
+                    _logger.LogWarning("Invoice {InvoiceId} has already been posted as {RefType}", invoiceId, expectedRefType);
+                    return false;
+                }
 
                 // Get required accounts (these should be configured in Chart of Accounts)
                 // For sales invoice on credit:
@@ -613,9 +615,21 @@ namespace fatortak.Services.AccountingPostingService
 
         public async Task<bool> IsInvoicePostedAsync(Guid invoiceId)
         {
+            var invoice = await _context.Invoices
+                .FirstOrDefaultAsync(i => i.Id == invoiceId && i.TenantId == TenantId);
+
+            if (invoice == null) return false;
+
+            var invoiceTypeStr = invoice.InvoiceType?.ToLower() ?? "";
+            bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() || 
+                                 invoiceTypeStr == "sales" || 
+                                 invoiceTypeStr == "sale";
+
+            var expectedRefType = isSalesInvoice ? JournalEntryReferenceType.Invoice : JournalEntryReferenceType.PurchaseInvoice;
+
             var entry = await _context.JournalEntries
                 .FirstOrDefaultAsync(je => je.TenantId == TenantId &&
-                                           je.ReferenceType == JournalEntryReferenceType.Invoice &&
+                                           je.ReferenceType == expectedRefType &&
                                            je.ReferenceId == invoiceId &&
                                            je.IsPosted);
 

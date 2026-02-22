@@ -307,6 +307,20 @@ namespace fatortak.Services.InvoiceService
                     
                     if (project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
                         return ServiceResult<InvoiceDto>.Failure($"Cannot create invoice for a {project.Status.ToString().ToLower()} project.");
+                    
+                    // Sales invoice restriction: Only one per project
+                    if (dto.InvoiceType?.ToLower() == InvoiceTypes.Sell.ToString().ToLower())
+                    {
+                        var existingSalesInvoice = await _context.Invoices
+                            .AnyAsync(i => i.ProjectId == dto.ProjectId && 
+                                           i.TenantId == TenantId && 
+                                           (i.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower() || 
+                                            i.InvoiceType.ToLower() == "sales" || 
+                                            i.InvoiceType.ToLower() == "sale"));
+                        
+                        if (existingSalesInvoice)
+                            return ServiceResult<InvoiceDto>.Failure("A sales invoice already exists for this project. Each project can only have one sales invoice.");
+                    }
                 }
 
                 if (dto.Items == null || !dto.Items.Any())
@@ -745,6 +759,24 @@ namespace fatortak.Services.InvoiceService
                         
                     if (project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
                         return ServiceResult<InvoiceDto>.Failure($"Cannot link invoice to a {project.Status.ToString().ToLower()} project.");
+
+                    // Sales invoice restriction: Only one per project
+                    var targetInvoiceType = dto.InvoiceType ?? invoice.InvoiceType;
+                    if (targetInvoiceType?.ToLower() == InvoiceTypes.Sell.ToString().ToLower() || 
+                        targetInvoiceType?.ToLower() == "sales" || 
+                        targetInvoiceType?.ToLower() == "sale")
+                    {
+                        var existingSalesInvoice = await _context.Invoices
+                            .AnyAsync(i => i.ProjectId == dto.ProjectId.Value && 
+                                           i.Id != invoiceId &&
+                                           i.TenantId == TenantId && 
+                                           (i.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower() || 
+                                            i.InvoiceType.ToLower() == "sales" || 
+                                            i.InvoiceType.ToLower() == "sale"));
+                        
+                        if (existingSalesInvoice)
+                            return ServiceResult<InvoiceDto>.Failure("A sales invoice already exists for this project. Each project can only have one sales invoice.");
+                    }
 
                     invoice.ProjectId = dto.ProjectId;
                 }

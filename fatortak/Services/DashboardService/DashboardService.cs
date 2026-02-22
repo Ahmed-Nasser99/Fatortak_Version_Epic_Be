@@ -85,7 +85,7 @@ namespace fatortak.Services.DashboardService
                                   jel.JournalEntry.IsPosted &&
                                   jel.JournalEntry.Date >= monthStart &&
                                   jel.JournalEntry.Date <= monthEnd &&
-                                  (!branchId.HasValue || (jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Invoice && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.BranchId == branchId))) &&
+                                  (!branchId.HasValue || ((jel.JournalEntry.ReferenceType == JournalEntryReferenceType.Invoice || jel.JournalEntry.ReferenceType == JournalEntryReferenceType.PurchaseInvoice) && _context.Invoices.Any(i => i.Id == jel.JournalEntry.ReferenceId && i.BranchId == branchId))) &&
                                   (!projectId.HasValue || jel.JournalEntry.ProjectId == projectId) &&
                                   jel.Account.AccountType == AccountType.Expense)
                     .SumAsync(jel => jel.Debit - jel.Credit);
@@ -322,6 +322,10 @@ namespace fatortak.Services.DashboardService
                     // For invoices, "paid" in this context is usually 0 unless it was a cash sale
                     // But for the list, we show the total invoice amount
                     type = "Sales";
+                }
+                else if (je.ReferenceType == JournalEntryReferenceType.PurchaseInvoice)
+                {
+                    type = "Purchase";
                 }
 
                 return new TransactionDto
