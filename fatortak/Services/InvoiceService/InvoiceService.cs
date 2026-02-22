@@ -425,6 +425,17 @@ namespace fatortak.Services.InvoiceService
 
                     if (paymentAmount > 0)
                     {
+                        // Account Balance Validation for Purchase Invoices
+                        if (dto.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower())
+                        {
+                            var balanceResult = await ValidatePurchaseInvoiceBalanceAsync(dto.PaymentAccountId, paymentAmount);
+                            if (!balanceResult.Success)
+                            {
+                                await transaction.RollbackAsync();
+                                return ServiceResult<InvoiceDto>.Failure(balanceResult.ErrorMessage);
+                            }
+                        }
+
                         await RegisterPaymentAsync(invoice, paymentAmount);
                     }
 
@@ -927,6 +938,17 @@ namespace fatortak.Services.InvoiceService
 
                     if (amountToPay > 0)
                     {
+                        // Account Balance Validation for Purchase Invoices
+                        if (invoice.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower())
+                        {
+                            var balanceResult = await ValidatePurchaseInvoiceBalanceAsync(dto.PaymentAccountId, amountToPay);
+                            if (!balanceResult.Success)
+                            {
+                                await transaction.RollbackAsync();
+                                return ServiceResult<InvoiceDto>.Failure(balanceResult.ErrorMessage);
+                            }
+                        }
+
                         await RegisterPaymentAsync(invoice, amountToPay);
                     }
                 }
@@ -1178,15 +1200,10 @@ namespace fatortak.Services.InvoiceService
             // Account Balance Validation for Purchase Invoices
             if (invoice.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower() && amountToPay > 0 && oldStatus != InvoiceStatus.Paid.ToString())
             {
-                // Fallback to default Cash (1000) for automatic payments
-                var cashAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.AccountCode == "1000" && a.TenantId == TenantId);
-                if (cashAccount != null)
+                var balanceResult = await ValidatePurchaseInvoiceBalanceAsync(null, amountToPay);
+                if (!balanceResult.Success)
                 {
-                    var balanceResult = await _accountingService.GetAccountBalanceAsync(cashAccount.Id);
-                    if (balanceResult.Success && balanceResult.Data.Balance < amountToPay)
-                    {
-                        return ServiceResult<bool>.Failure($"Insufficient funds in Cash account to mark as Paid. Required: {amountToPay:N2}, Available: {balanceResult.Data.Balance:N2} EGP");
-                    }
+                    return ServiceResult<bool>.Failure(balanceResult.ErrorMessage);
                 }
             }
 
@@ -1649,26 +1666,14 @@ namespace fatortak.Services.InvoiceService
             return ServiceResult<bool>.Failure($"Payment amount exceeds the remaining balance of {remainingBalance}.");
 
         // Account Balance Validation for Purchase Invoices
-        if (invoice.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower())
-        {
-            Guid? accountId = dto.PaymentAccountId;
-            if (!accountId.HasValue)
-            {
-                // Fallback to default Cash (1000)
-                var cashAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.AccountCode == "1000" && a.TenantId == TenantId);
-                accountId = cashAccount?.Id;
-            }
-
-            if (accountId.HasValue)
-            {
-                var balanceResult = await _accountingService.GetAccountBalanceAsync(accountId.Value);
-                if (balanceResult.Success && balanceResult.Data.Balance < dto.Amount)
-                {
-                    return ServiceResult<bool>.Failure($"Insufficient funds in {balanceResult.Data.AccountName}. Available: {balanceResult.Data.Balance:N2} EGP");
-                }
-            }
-        }
-
+if (invoice.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower())
+{
+    var balanceResult = await ValidatePurchaseInvoiceBalanceAsync(dto.PaymentAccountId, dto.Amount);
+    if (!balanceResult.Success)
+    {
+        return ServiceResult<bool>.Failure(balanceResult.ErrorMessage);
+    }
+}
         // Update paid amount
                 invoice.AmountPaid = (invoice.AmountPaid ?? 0) + dto.Amount;
                 invoice.UpdatedAt = DateTime.UtcNow;
@@ -1830,6 +1835,32 @@ namespace fatortak.Services.InvoiceService
                 _logger.LogWarning(ex, "Failed to parse {Key} from Form as JSON string", key);
                 return null;
             }
+        }
+        private async Task<ServiceResult<bool>> ValidatePurchaseInvoiceBalanceAsync(Guid? accountId, decimal amount)
+        {
+            if (amount <= 0) return ServiceResult<bool>.SuccessResult(true);
+
+            if (!accountId.HasValue)
+            {
+                // Fallback to default Cash (1000)
+                var cashAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.AccountCode == "1000" && a.TenantId == TenantId);
+                accountId = cashAccount?.Id;
+            }
+
+            if (accountId.HasValue)
+            {
+                var balanceResult = await _accountingService.GetAccountBalanceAsync(accountId.Value);
+                if (balanceResult.Success && balanceResult.Data.Balance < amount)
+                {
+                    return ServiceResult<bool>.Failure($"Insufficient funds in {balanceResult.Data.AccountName}. Required: {amount:N2}, Available: {balanceResult.Data.Balance:N2} EGP");
+                }
+            }
+            else
+            {
+                return ServiceResult<bool>.Failure("Payment account not found and default Cash account (1000) is missing.");
+            }
+
+            return ServiceResult<bool>.SuccessResult(true);
         }
     }
 }
