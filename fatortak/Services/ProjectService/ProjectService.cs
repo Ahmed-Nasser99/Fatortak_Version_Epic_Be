@@ -146,11 +146,11 @@ namespace fatortak.Services.ProjectService
                 ProjectStatus oldStatus = project.Status;
 
                 // Status Transition Validation
-                if (oldStatus == ProjectStatus.Completed && status != ProjectStatus.Completed)
-                    return ServiceResult<ProjectDto>.Failure("Cannot change status of a completed project.");
+                if (oldStatus == ProjectStatus.Completed || oldStatus == ProjectStatus.Cancelled)
+                    return ServiceResult<ProjectDto>.Failure($"Cannot change status of a {oldStatus.ToString().ToLower()} project.");
 
-                if (oldStatus == ProjectStatus.Cancelled)
-                    return ServiceResult<ProjectDto>.Failure("Cannot change status of a cancelled project.");
+                if (status == ProjectStatus.Draft && (oldStatus == ProjectStatus.Active || oldStatus == ProjectStatus.Completed))
+                    return ServiceResult<ProjectDto>.Failure("Cannot revert an active or completed project to draft.");
 
                 if (status == ProjectStatus.Completed)
                 {
@@ -197,12 +197,12 @@ namespace fatortak.Services.ProjectService
 
                 ProjectStatus oldStatus = project.Status;
 
-                // Status Transition Validation
-                if (oldStatus == ProjectStatus.Completed && dto.Status != ProjectStatus.Completed)
-                    return ServiceResult<ProjectDto>.Failure("Cannot change status of a completed project.");
+                // Edits are blocked for Completed, Cancelled, and Active projects
+                if (oldStatus == ProjectStatus.Completed || oldStatus == ProjectStatus.Cancelled)
+                    return ServiceResult<ProjectDto>.Failure($"Cannot edit a {oldStatus.ToString().ToLower()} project.");
 
-                if (oldStatus == ProjectStatus.Cancelled)
-                    return ServiceResult<ProjectDto>.Failure("Cannot change status of a cancelled project.");
+                if (oldStatus == ProjectStatus.Active)
+                    return ServiceResult<ProjectDto>.Failure("Cannot edit an active project details. Please use the status update if you need to change its state.");
 
                 if (dto.Status == ProjectStatus.Completed)
                 {

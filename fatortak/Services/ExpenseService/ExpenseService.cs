@@ -1,9 +1,10 @@
+using fatortak.Common.Enum;
 using fatortak.Context;
 using fatortak.Dtos.Expense;
 using fatortak.Dtos.Shared;
 using fatortak.Entities;
-using fatortak.Services.TransactionService;
 using fatortak.Services.AccountingPostingService;
+using fatortak.Services.TransactionService;
 using Microsoft.EntityFrameworkCore;
 
 namespace fatortak.Services.ExpenseService
@@ -56,7 +57,7 @@ namespace fatortak.Services.ExpenseService
 
                 if (filter.ProjectId.HasValue)
                     query = query.Where(e => e.ProjectId == filter.ProjectId.Value);
-                    
+
                 if (!string.IsNullOrWhiteSpace(filter.Category) && Guid.TryParse(filter.Category, out var catId))
                     query = query.Where(e => e.CategoryId == catId);
 
@@ -149,6 +150,16 @@ namespace fatortak.Services.ExpenseService
                     originalFileName = expenseDto.File.FileName;
                 }
 
+                if (expenseDto.ProjectId.HasValue)
+                {
+                    var project = await _context.Projects.FirstOrDefaultAsync(p => p.Id == expenseDto.ProjectId.Value && p.TenantId == _tenantId);
+                    if (project == null)
+                        return ServiceResult<ExpenseDto>.Failure("Project not found.");
+
+                    if (project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
+                        return ServiceResult<ExpenseDto>.Failure($"Cannot record expense for a {project.Status.ToString().ToLower()} project.");
+                }
+
                 var expense = new Expenses
                 {
                     Date = expenseDto.Date,
@@ -209,9 +220,9 @@ namespace fatortak.Services.ExpenseService
                     // If Transaction is created from Expense, Expense has file.
                     // If Transaction is direct (e.g. Bank Fee), it might need file.
                     // Here we link them. 
-                    financialTransaction.AttachmentUrl = filePath; 
+                    financialTransaction.AttachmentUrl = filePath;
                 }
-                
+
                 var transactionResult = await _transactionService.AddTransactionAsync(financialTransaction);
                 if (!transactionResult.Success)
                 {
@@ -261,7 +272,7 @@ namespace fatortak.Services.ExpenseService
                     return ServiceResult<ExpenseDto>.Failure("Expense not found");
 
                 // Handle file removal/upload omitted for brevity in snippet, assume existing logic preserved if not touched
-                 // Handle file removal if requested
+                // Handle file removal if requested
                 if (expenseDto.RemoveFile == true)
                 {
                     if (!string.IsNullOrEmpty(expense.FilePath))
@@ -275,11 +286,11 @@ namespace fatortak.Services.ExpenseService
                 // Handle new file upload
                 if (expenseDto.File != null && expenseDto.File.Length > 0)
                 {
-                     // Validate file size (10MB limit)
+                    // Validate file size (10MB limit)
                     if (expenseDto.File.Length > 10 * 1024 * 1024)
                         return ServiceResult<ExpenseDto>.Failure("File size cannot exceed 10MB");
 
-                     // Validate file type
+                    // Validate file type
                     var allowedExtensions = new[] { ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".doc", ".docx", ".xls", ".xlsx" };
                     var fileExtension = Path.GetExtension(expenseDto.File.FileName).ToLower();
                     if (!allowedExtensions.Contains(fileExtension))
@@ -298,7 +309,17 @@ namespace fatortak.Services.ExpenseService
                 if (expenseDto.Total.HasValue) expense.Total = expenseDto.Total.Value;
                 if (expenseDto.Notes != null) expense.Notes = expenseDto.Notes;
                 if (expenseDto.BranchId.HasValue) expense.BranchId = expenseDto.BranchId.Value;
-                if (expenseDto.ProjectId.HasValue) expense.ProjectId = expenseDto.ProjectId.Value;
+                if (expenseDto.ProjectId.HasValue)
+                {
+                    var project = await _context.Projects.FirstOrDefaultAsync(p => p.Id == expenseDto.ProjectId.Value && p.TenantId == _tenantId);
+                    if (project == null)
+                        return ServiceResult<ExpenseDto>.Failure("Project not found.");
+
+                    if (project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
+                        return ServiceResult<ExpenseDto>.Failure($"Cannot link expense to a {project.Status.ToString().ToLower()} project.");
+
+                    expense.ProjectId = expenseDto.ProjectId.Value;
+                }
                 if (expenseDto.CategoryId.HasValue) expense.CategoryId = expenseDto.CategoryId.Value;
                 if (expenseDto.PaymentAccountId.HasValue) expense.PaymentAccountId = expenseDto.PaymentAccountId.Value;
 
@@ -325,8 +346,8 @@ namespace fatortak.Services.ExpenseService
 
                 if (expense.ProjectId.HasValue)
                 {
-                     // We might need to reload project to map name
-                     await _context.Entry(expense).Reference(e => e.Project).LoadAsync();
+                    // We might need to reload project to map name
+                    await _context.Entry(expense).Reference(e => e.Project).LoadAsync();
                 }
 
                 return ServiceResult<ExpenseDto>.SuccessResult(MapToDto(expense));

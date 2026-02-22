@@ -299,6 +299,16 @@ namespace fatortak.Services.InvoiceService
                     ? dto.InvoiceNumber
                     : GenerateInvoiceNumber(company.InvoicePrefix, lastInvoice?.InvoiceNumber);
 
+                if (dto.ProjectId.HasValue)
+                {
+                    var project = await _context.Projects.FirstOrDefaultAsync(p => p.Id == dto.ProjectId && p.TenantId == TenantId);
+                    if (project == null)
+                        return ServiceResult<InvoiceDto>.Failure("Project not found.");
+                    
+                    if (project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
+                        return ServiceResult<InvoiceDto>.Failure($"Cannot create invoice for a {project.Status.ToString().ToLower()} project.");
+                }
+
                 if (dto.Items == null || !dto.Items.Any())
                 {
                     dto.Items = ParseJsonFromForm<InvoiceItemCreateDto>("items");
@@ -726,7 +736,22 @@ namespace fatortak.Services.InvoiceService
 
                 invoice.InvoiceType = dto.InvoiceType ?? invoice.InvoiceType;
                 invoice.BranchId = dto.BranchId ?? invoice.BranchId;
-                invoice.ProjectId = dto.ProjectId ?? invoice.ProjectId;
+                // Project status check
+                if (dto.ProjectId.HasValue)
+                {
+                    var project = await _context.Projects.FirstOrDefaultAsync(p => p.Id == dto.ProjectId.Value && p.TenantId == TenantId);
+                    if (project == null)
+                        return ServiceResult<InvoiceDto>.Failure("Project not found.");
+                        
+                    if (project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
+                        return ServiceResult<InvoiceDto>.Failure($"Cannot link invoice to a {project.Status.ToString().ToLower()} project.");
+
+                    invoice.ProjectId = dto.ProjectId;
+                }
+                else
+                {
+                    invoice.ProjectId = null;
+                }
                 invoice.InvoiceNumber = dto.InvoiceNumber ?? invoice.InvoiceNumber;
                 invoice.AttachmentUrl = dto.AttachmentUrl ?? invoice.AttachmentUrl;
                 invoice.UpdatedAt = DateTime.UtcNow;
