@@ -23,6 +23,7 @@ namespace fatortak.Dtos
         public decimal TotalCollected { get; set; }
         public decimal TotalPaid { get; set; }
         public decimal NetProfit { get; set; }
+        public decimal Discount { get; set; }
         public List<ProjectLineDto> ProjectLines { get; set; } = new List<ProjectLineDto>();
     }
 
@@ -46,6 +47,7 @@ namespace fatortak.Dtos
         public Guid? CustomerId { get; set; }
         public ProjectStatus Status { get; set; } = ProjectStatus.Active;
         public decimal ContractValue { get; set; }
+        public decimal? Discount { get; set; }
     }
 
     public class UpdateProjectDto
@@ -55,6 +57,7 @@ namespace fatortak.Dtos
         public Guid? CustomerId { get; set; } // Can update to link/unlink client
         public ProjectStatus Status { get; set; }
         public decimal ContractValue { get; set; }
+        public decimal? Discount { get; set; }
     }
     public class UpdateProjectStatusDto
     {

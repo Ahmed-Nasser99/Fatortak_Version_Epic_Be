@@ -44,6 +44,7 @@ namespace fatortak.Services.ProjectService
                     CustomerId = dto.CustomerId,
                     Status = dto.Status,
                     ContractValue = dto.ContractValue,
+                    Discount = dto.Discount ?? 0,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -222,6 +223,7 @@ namespace fatortak.Services.ProjectService
                 project.CustomerId = dto.CustomerId;
                 project.Status = dto.Status;
                 project.ContractValue = dto.ContractValue;
+                project.Discount = dto.Discount ?? 0;
                 project.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
@@ -272,6 +274,7 @@ namespace fatortak.Services.ProjectService
                     PaymentTerms = command.PaymentTerms,
                     Notes = command.Notes,
                     Status = command.ActivateImmediately ? ProjectStatus.Active : ProjectStatus.Draft,
+                    Discount = command.Discount ?? 0,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -394,7 +397,8 @@ namespace fatortak.Services.ProjectService
                 Status = InvoiceStatus.Posted.ToString(),
                 Subtotal = project.ContractValue,
                 VatAmount = 0,
-                Total = project.ContractValue,
+                TotalDiscount = project.Discount,
+                Total = project.ContractValue - project.Discount,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -505,6 +509,7 @@ namespace fatortak.Services.ProjectService
                 ContractValue = project.ContractValue,
                 PaymentTerms = project.PaymentTerms,
                 Notes = project.Notes,
+                Discount = project.Discount,
                 IsInternal = project.IsInternal,
                 CreatedAt = project.CreatedAt,
                 ProjectLines = project.ProjectLines?.Select(l => new ProjectLineDto

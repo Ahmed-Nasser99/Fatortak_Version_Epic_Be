@@ -1,3 +1,5 @@
+using fatortak.Dtos.Shared;
+
 namespace fatortak.Services.CustodyService
 {
     /// <summary>
@@ -9,17 +11,17 @@ namespace fatortak.Services.CustodyService
         /// <summary>
         /// Give custody using an account ID directly.
         /// </summary>
-        Task<bool> GiveCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description);
+        Task<ServiceResult<bool>> GiveCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description);
 
         /// <summary>
         /// Return custody using an account ID directly.
         /// </summary>
-        Task<bool> ReturnCustodyByAccountAsync(Guid accountId, decimal amount, Guid? destinationAccountId, string? description);
+        Task<ServiceResult<bool>> ReturnCustodyByAccountAsync(Guid accountId, decimal amount, Guid? destinationAccountId, string? description);
 
         /// <summary>
         /// Replenish custody using an account ID directly.
         /// </summary>
-        Task<bool> ReplenishCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description);
+        Task<ServiceResult<bool>> ReplenishCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description);
 
         /// <summary>
         /// Create a new custody account under the "Employee Custody" parent.

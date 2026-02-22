@@ -598,11 +598,18 @@ namespace fatortak.Controllers
         /// Give custody using an account ID directly.
         /// </summary>
         [HttpPost("custody/give-by-account")]
-        public async Task<ActionResult<bool>> GiveCustodyByAccount([FromBody] GiveCustodyByAccountDto dto)
+        public async Task<ActionResult<ServiceResult<bool>>> GiveCustodyByAccount([FromBody] GiveCustodyByAccountDto dto)
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ServiceResult<bool>.ValidationError(errors));
+                }
 
                 var result = await _custodyService.GiveCustodyByAccountAsync(
                     dto.AccountId,
@@ -610,14 +617,14 @@ namespace fatortak.Controllers
                     dto.SourceAccountId,
                     dto.Description);
 
-                if (!result) return BadRequest(new { message = "Failed to give custody. Check logs." });
+                if (!result.Success) return BadRequest(result);
 
-                return Ok(new { success = true, message = "Custody given successfully" });
+                return Ok(result);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error giving custody to account {dto.AccountId}");
-                return StatusCode(500, new { message = "Failed to give custody" });
+                return StatusCode(500, ServiceResult<bool>.Failure("Failed to give custody"));
             }
         }
 
@@ -645,11 +652,18 @@ namespace fatortak.Controllers
         /// Return custody using an account ID directly.
         /// </summary>
         [HttpPost("custody/return-by-account")]
-        public async Task<ActionResult<bool>> ReturnCustodyByAccount([FromBody] ReturnCustodyByAccountDto dto)
+        public async Task<ActionResult<ServiceResult<bool>>> ReturnCustodyByAccount([FromBody] ReturnCustodyByAccountDto dto)
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ServiceResult<bool>.ValidationError(errors));
+                }
 
                 var result = await _custodyService.ReturnCustodyByAccountAsync(
                     dto.AccountId,
@@ -657,14 +671,14 @@ namespace fatortak.Controllers
                     dto.DestinationAccountId,
                     dto.Description);
 
-                if (!result) return BadRequest(new { message = "Failed to return custody. Check logs." });
+                if (!result.Success) return BadRequest(result);
 
-                return Ok(new { success = true, message = "Custody returned successfully" });
+                return Ok(result);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error returning custody from account {dto.AccountId}");
-                return StatusCode(500, new { message = "Failed to return custody" });
+                return StatusCode(500, ServiceResult<bool>.Failure("Failed to return custody"));
             }
         }
 
@@ -672,11 +686,18 @@ namespace fatortak.Controllers
         /// Replenish custody using an account ID directly.
         /// </summary>
         [HttpPost("custody/replenish-by-account")]
-        public async Task<ActionResult<bool>> ReplenishCustodyByAccount([FromBody] ReplenishCustodyByAccountDto dto)
+        public async Task<ActionResult<ServiceResult<bool>>> ReplenishCustodyByAccount([FromBody] ReplenishCustodyByAccountDto dto)
         {
             try
             {
-                if (!ModelState.IsValid) return BadRequest(ModelState);
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ServiceResult<bool>.ValidationError(errors));
+                }
 
                 var result = await _custodyService.ReplenishCustodyByAccountAsync(
                     dto.AccountId,
@@ -684,14 +705,14 @@ namespace fatortak.Controllers
                     dto.SourceAccountId,
                     dto.Description);
 
-                if (!result) return BadRequest(new { message = "Failed to replenish custody. Check logs." });
+                if (!result.Success) return BadRequest(result);
 
-                return Ok(new { success = true, message = "Custody replenished successfully" });
+                return Ok(result);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error replenishing custody for account {dto.AccountId}");
-                return StatusCode(500, new { message = "Failed to replenish custody" });
+                return StatusCode(500, ServiceResult<bool>.Failure("Failed to replenish custody"));
             }
         }
 

@@ -1,6 +1,7 @@
 using fatortak.Common.Enum;
 using fatortak.Context;
 using fatortak.Dtos.Accounting;
+using fatortak.Dtos.Shared;
 using fatortak.Entities;
 using fatortak.Services.AccountingService;
 using Microsoft.EntityFrameworkCore;
@@ -45,7 +46,7 @@ namespace fatortak.Services.CustodyService
             return Guid.TryParse(userIdClaim, out var userId) ? userId : null;
         }
 
-        public async Task<bool> GiveCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description)
+        public async Task<ServiceResult<bool>> GiveCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
@@ -54,7 +55,7 @@ namespace fatortak.Services.CustodyService
                 if (account == null)
                 {
                     _logger.LogError("Custody account {AccountId} not found", accountId);
-                    return false;
+                    return ServiceResult<bool>.Failure("Custody account not found");
                 }
 
                 // Get source account (Cash or Bank)
@@ -66,7 +67,17 @@ namespace fatortak.Services.CustodyService
                 {
                     _logger.LogError("Source account not found for giving custody");
                     await transaction.RollbackAsync();
-                    return false;
+                    return ServiceResult<bool>.Failure("Source account not found");
+                }
+
+                // Check source account balance
+                var balanceResult = await _accountingService.GetAccountBalanceAsync(sourceAccount.Id);
+                if (balanceResult.Success && balanceResult.Data.Balance < amount)
+                {
+                    _logger.LogWarning("Insufficient funds in account {AccountName} (Code: {AccountCode}). Available: {Balance}, Needed: {Amount}",
+                        sourceAccount.Name, sourceAccount.AccountCode, balanceResult.Data.Balance, amount);
+                    await transaction.RollbackAsync();
+                    return ServiceResult<bool>.Failure($"Insufficient funds in {sourceAccount.Name}. Available: {balanceResult.Data.Balance:N2}");
                 }
 
                 // Generate entry number
@@ -115,18 +126,18 @@ namespace fatortak.Services.CustodyService
                 await transaction.CommitAsync();
 
                 _logger.LogInformation("Successfully gave custody {Amount} to account {AccountId}", amount, accountId);
-                return true;
+                return ServiceResult<bool>.SuccessResult(true);
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
                 _logger.LogError(ex, "Error giving custody to account {AccountId}", accountId);
-                return false;
+                return ServiceResult<bool>.Failure("An error occurred while giving custody");
             }
         }
 
 
-        public async Task<bool> ReturnCustodyByAccountAsync(Guid accountId, decimal amount, Guid? destinationAccountId, string? description)
+        public async Task<ServiceResult<bool>> ReturnCustodyByAccountAsync(Guid accountId, decimal amount, Guid? destinationAccountId, string? description)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
@@ -135,7 +146,7 @@ namespace fatortak.Services.CustodyService
                 if (account == null)
                 {
                     _logger.LogError("Custody account {AccountId} not found", accountId);
-                    return false;
+                    return ServiceResult<bool>.Failure("Custody account not found");
                 }
 
                 // Get destination account (Cash or Bank)
@@ -147,7 +158,7 @@ namespace fatortak.Services.CustodyService
                 {
                     _logger.LogError("Destination account not found for returning custody");
                     await transaction.RollbackAsync();
-                    return false;
+                    return ServiceResult<bool>.Failure("Destination account not found");
                 }
 
                 // Generate entry number
@@ -196,18 +207,18 @@ namespace fatortak.Services.CustodyService
                 await transaction.CommitAsync();
 
                 _logger.LogInformation("Successfully returned custody {Amount} from account {AccountId}", amount, accountId);
-                return true;
+                return ServiceResult<bool>.SuccessResult(true);
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
                 _logger.LogError(ex, "Error returning custody from account {AccountId}", accountId);
-                return false;
+                return ServiceResult<bool>.Failure("An error occurred while returning custody");
             }
         }
 
 
-        public async Task<bool> ReplenishCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description)
+        public async Task<ServiceResult<bool>> ReplenishCustodyByAccountAsync(Guid accountId, decimal amount, Guid? sourceAccountId, string? description)
         {
             return await GiveCustodyByAccountAsync(accountId, amount, sourceAccountId, description ?? "Custody replenishment");
         }
@@ -218,8 +229,8 @@ namespace fatortak.Services.CustodyService
             // Get balance from accounting
             var query = _context.JournalEntryLines
                 .Include(jel => jel.JournalEntry)
-                .Where(jel => jel.AccountId == accountId && 
-                              jel.JournalEntry.TenantId == TenantId && 
+                .Where(jel => jel.AccountId == accountId &&
+                              jel.JournalEntry.TenantId == TenantId &&
                               jel.JournalEntry.IsPosted);
 
             var debitTotal = await query.SumAsync(jel => jel.Debit);

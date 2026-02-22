@@ -18,5 +18,6 @@ namespace fatortak.Dtos.Project
         public List<fatortak.Dtos.ProjectLineDto> Lines { get; set; } = new List<fatortak.Dtos.ProjectLineDto>();
 
         public bool ActivateImmediately { get; set; }
+        public decimal? Discount { get; set; }
     }
 }

@@ -24,6 +24,9 @@ namespace fatortak.Entities
         [Column(TypeName = "decimal(18,2)")]
         public decimal ContractValue { get; set; }
 
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal Discount { get; set; } = 0;
+
         public string? PaymentTerms { get; set; }
         public string? Notes { get; set; }
 
@@ -34,7 +37,7 @@ namespace fatortak.Entities
         public bool IsInternal => CustomerId == null;
 
         public Tenant Tenant { get; set; }
-        
+
         // Navigation properties
         public ICollection<ProjectLine> ProjectLines { get; set; } = new List<ProjectLine>();
         public ICollection<Transaction> Transactions { get; set; }
