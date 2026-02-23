@@ -60,8 +60,8 @@ namespace fatortak.Services.AccountingPostingService
 
                 // Determine if this is a sales or purchase invoice
                 var invoiceTypeStr = invoice.InvoiceType?.ToLower() ?? "";
-                bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() || 
-                                     invoiceTypeStr == "sales" || 
+                bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() ||
+                                     invoiceTypeStr == "sales" ||
                                      invoiceTypeStr == "sale";
 
                 var expectedRefType = isSalesInvoice ? JournalEntryReferenceType.Invoice : JournalEntryReferenceType.PurchaseInvoice;
@@ -174,7 +174,7 @@ namespace fatortak.Services.AccountingPostingService
                         JournalEntryId = journalEntry.Id,
                         AccountId = salesRevenueAccount.Id,
                         Debit = 0,
-                        Credit = invoice.Subtotal,
+                        Credit = invoice.Total,
                         Description = $"Invoice {invoice.InvoiceNumber} - Revenue"
                     });
 
@@ -300,21 +300,21 @@ namespace fatortak.Services.AccountingPostingService
                 //   Cr Payment Source (Cash/Bank/Employee)
 
                 Account? expenseAccount = null;
-                
+
                 // 1. Try to get account from Category
                 if (expense.CategoryId.HasValue)
                 {
                     var category = await _context.ExpenseCategories
                         .Include(c => c.Account)
                         .FirstOrDefaultAsync(c => c.Id == expense.CategoryId.Value);
-                    
+
                     if (category != null)
                     {
                         expenseAccount = category.Account;
                         expense.Category = category;
                     }
                 }
-                
+
                 // Fallback to default if category account missing
                 if (expenseAccount == null)
                 {
@@ -328,7 +328,7 @@ namespace fatortak.Services.AccountingPostingService
                     cashAccount = await _context.Accounts
                         .FirstOrDefaultAsync(a => a.Id == expense.PaymentAccountId.Value && a.TenantId == TenantId);
                 }
-                
+
                 // Fallback to default cash if payment account missing
                 if (cashAccount == null)
                 {
@@ -408,7 +408,7 @@ namespace fatortak.Services.AccountingPostingService
         {
             var existingTransaction = _context.Database.CurrentTransaction;
             var transaction = existingTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
-            
+
             try
             {
                 // Check if already posted
@@ -438,8 +438,8 @@ namespace fatortak.Services.AccountingPostingService
 
                 // Determine if this is a sales or purchase invoice payment
                 var invoiceTypeStr = invoice.InvoiceType?.ToLower() ?? "";
-                bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() || 
-                                     invoiceTypeStr == "sales" || 
+                bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() ||
+                                     invoiceTypeStr == "sales" ||
                                      invoiceTypeStr == "sale";
 
                 // Get accounts
@@ -486,7 +486,7 @@ namespace fatortak.Services.AccountingPostingService
                     cashOrBankAccount = await _context.Accounts
                         .FirstOrDefaultAsync(a => a.Id == paymentAccountId.Value && a.TenantId == TenantId);
                 }
-                
+
                 if (cashOrBankAccount == null)
                 {
                     // Map "Cash" to account 1000, and everything else (BankTransfer, Cheque, etc.) to account 1100
@@ -498,7 +498,7 @@ namespace fatortak.Services.AccountingPostingService
                     {
                         cashOrBankAccount = await GetOrCreateSystemAccountAsync("1100", "Bank Account", AccountType.Asset);
                     }
-                    
+
                     // Final backup fallback
                     if (cashOrBankAccount == null)
                     {
@@ -507,11 +507,11 @@ namespace fatortak.Services.AccountingPostingService
                 }
 
 
-                if ((isSalesInvoice && accountsReceivableAccount == null) || 
-                    (!isSalesInvoice && accountsPayableAccount == null) || 
+                if ((isSalesInvoice && accountsReceivableAccount == null) ||
+                    (!isSalesInvoice && accountsPayableAccount == null) ||
                     cashOrBankAccount == null)
                 {
-                    _logger.LogError("Required accounts not found for payment posting (Invoice: {InvoiceId}, Type: {Type})", 
+                    _logger.LogError("Required accounts not found for payment posting (Invoice: {InvoiceId}, Type: {Type})",
                         invoiceId, isSalesInvoice ? "Sales" : "Purchase");
                     await transaction.RollbackAsync();
                     return false;
@@ -539,12 +539,12 @@ namespace fatortak.Services.AccountingPostingService
 
                 _context.JournalEntries.Add(journalEntry);
 
-                _logger.LogInformation("Posting payment for Invoice {InvoiceId}. Amount: {Amount}, Method: {Method}, Account: {AccountName} ({AccountCode}), Sales: {IsSales}", 
+                _logger.LogInformation("Posting payment for Invoice {InvoiceId}. Amount: {Amount}, Method: {Method}, Account: {AccountName} ({AccountCode}), Sales: {IsSales}",
                     invoiceId, amount, paymentMethod, cashOrBankAccount.Name, cashOrBankAccount.AccountCode, isSalesInvoice);
 
                 if (isSalesInvoice)
                 {
-                    _logger.LogInformation("Sales Payment: Debiting {CashAccount} ({CashCode}), Crediting {ArAccount} ({ArCode})", 
+                    _logger.LogInformation("Sales Payment: Debiting {CashAccount} ({CashCode}), Crediting {ArAccount} ({ArCode})",
                         cashOrBankAccount.Name, cashOrBankAccount.AccountCode, accountsReceivableAccount.Name, accountsReceivableAccount.AccountCode);
                     // Dr Cash/Bank Account
                     _context.JournalEntryLines.Add(new JournalEntryLine
@@ -570,7 +570,7 @@ namespace fatortak.Services.AccountingPostingService
                 }
                 else
                 {
-                    _logger.LogInformation("Purchase Payment: Debiting {ApAccount} ({ApCode}), Crediting {CashAccount} ({CashCode})", 
+                    _logger.LogInformation("Purchase Payment: Debiting {ApAccount} ({ApCode}), Crediting {CashAccount} ({CashCode})",
                         accountsPayableAccount.Name, accountsPayableAccount.AccountCode, cashOrBankAccount.Name, cashOrBankAccount.AccountCode);
                     // Dr Accounts Payable
                     _context.JournalEntryLines.Add(new JournalEntryLine
@@ -621,8 +621,8 @@ namespace fatortak.Services.AccountingPostingService
             if (invoice == null) return false;
 
             var invoiceTypeStr = invoice.InvoiceType?.ToLower() ?? "";
-            bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() || 
-                                 invoiceTypeStr == "sales" || 
+            bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() ||
+                                 invoiceTypeStr == "sales" ||
                                  invoiceTypeStr == "sale";
 
             var expectedRefType = isSalesInvoice ? JournalEntryReferenceType.Invoice : JournalEntryReferenceType.PurchaseInvoice;
