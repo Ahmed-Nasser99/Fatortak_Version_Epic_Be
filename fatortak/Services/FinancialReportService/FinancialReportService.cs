@@ -3,11 +3,7 @@ using fatortak.Context;
 using fatortak.Dtos.Reports;
 using fatortak.Dtos.Shared;
 using fatortak.Entities;
-using fatortak.Helpers;
-using fatortak.Services.AccountingService;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace fatortak.Services.FinancialReportService
 {
@@ -291,24 +287,24 @@ namespace fatortak.Services.FinancialReportService
             {
                 if (TenantId == Guid.Empty) return ServiceResult<CashFlowReportDto>.Failure("Tenant context not found");
                 var cashAccounts = await _context.Accounts
-                    .Where(a => a.TenantId == TenantId && a.AccountType == AccountType.Asset && a.IsActive && 
+                    .Where(a => a.TenantId == TenantId && a.AccountType == AccountType.Asset && a.IsActive &&
                                (a.Name.Contains("Cash") || a.Name.Contains("Bank") || a.AccountCode.StartsWith("110")))
                     .ToListAsync();
-                
+
                 var cashAccountIds = cashAccounts.Select(a => a.Id).ToList();
 
                 var startingCash = await _context.JournalEntryLines
                     .Include(jel => jel.JournalEntry)
                     .Include(jel => jel.Account)
-                    .Where(jel => cashAccountIds.Contains(jel.AccountId) && 
-                                 jel.JournalEntry.TenantId == TenantId && 
-                                 jel.JournalEntry.IsPosted && 
+                    .Where(jel => cashAccountIds.Contains(jel.AccountId) &&
+                                 jel.JournalEntry.TenantId == TenantId &&
+                                 jel.JournalEntry.IsPosted &&
                                  jel.JournalEntry.Date < fromDate)
                     .ToListAsync();
-                
+
                 var startingTotal = 0m;
                 var groupedStarting = startingCash.GroupBy(jel => jel.Account.AccountType);
-                foreach(var group in groupedStarting)
+                foreach (var group in groupedStarting)
                 {
                     var debit = group.Sum(jel => jel.Debit);
                     var credit = group.Sum(jel => jel.Credit);
@@ -318,10 +314,10 @@ namespace fatortak.Services.FinancialReportService
                 var cashEntries = await _context.JournalEntryLines
                     .Include(jel => jel.JournalEntry)
                     .Include(jel => jel.Account)
-                    .Where(jel => cashAccountIds.Contains(jel.AccountId) && 
-                                 jel.JournalEntry.TenantId == TenantId && 
-                                 jel.JournalEntry.IsPosted && 
-                                 jel.JournalEntry.Date >= fromDate && 
+                    .Where(jel => cashAccountIds.Contains(jel.AccountId) &&
+                                 jel.JournalEntry.TenantId == TenantId &&
+                                 jel.JournalEntry.IsPosted &&
+                                 jel.JournalEntry.Date >= fromDate &&
                                  jel.JournalEntry.Date <= toDate)
                     .ToListAsync();
 
@@ -337,9 +333,9 @@ namespace fatortak.Services.FinancialReportService
                     EndingCash = startingTotal + netCashChange,
                     Sections = new List<CashFlowSectionDto>
                     {
-                        new CashFlowSectionDto 
-                        { 
-                            SectionName = "Net Cash Movement", 
+                        new CashFlowSectionDto
+                        {
+                            SectionName = "Net Cash Movement",
                             Items = new List<CashFlowItemDto> { new CashFlowItemDto { Name = "Net Cash In/Out", Amount = netCashChange } },
                             Total = netCashChange
                         }
@@ -368,10 +364,10 @@ namespace fatortak.Services.FinancialReportService
                     .ToListAsync();
 
                 var agingItems = invoices.GroupBy(i => new { i.CustomerId, i.Customer.Name })
-                    .Select(g => 
+                    .Select(g =>
                     {
                         var item = new AgingItemDto { EntityId = g.Key.CustomerId ?? Guid.Empty, EntityName = g.Key.Name };
-                        foreach(var inv in g)
+                        foreach (var inv in g)
                         {
                             var daysOld = (asOfDate - inv.IssueDate).Days;
                             var balance = inv.Total - (inv.AmountPaid ?? 0);
@@ -405,7 +401,7 @@ namespace fatortak.Services.FinancialReportService
 
         public async Task<ServiceResult<AgingReportDto>> GetAPAgingReportAsync(DateTime asOfDate)
         {
-             try
+            try
             {
                 if (TenantId == Guid.Empty) return ServiceResult<AgingReportDto>.Failure("Tenant context not found");
                 var invoices = await _context.Invoices
@@ -414,10 +410,10 @@ namespace fatortak.Services.FinancialReportService
                     .ToListAsync();
 
                 var agingItems = invoices.GroupBy(i => new { i.CustomerId, i.Customer.Name })
-                    .Select(g => 
+                    .Select(g =>
                     {
                         var item = new AgingItemDto { EntityId = g.Key.CustomerId ?? Guid.Empty, EntityName = g.Key.Name };
-                        foreach(var inv in g)
+                        foreach (var inv in g)
                         {
                             var daysOld = (asOfDate - inv.IssueDate).Days;
                             var balance = inv.Total - (inv.AmountPaid ?? 0);
@@ -462,13 +458,13 @@ namespace fatortak.Services.FinancialReportService
                 if (customer == null) return ServiceResult<StatementReportDto>.Failure("Customer not found");
 
                 var entries = new List<StatementEntryDto>();
-                
+
                 // Get all invoices for this customer
                 var invoices = await _context.Invoices
                     .Where(i => i.CustomerId == customerId && i.TenantId == TenantId && i.IssueDate >= fromDate && i.IssueDate <= toDate && i.InvoiceType == InvoiceTypes.Sell.ToString())
                     .ToListAsync();
-                
-                foreach(var inv in invoices)
+
+                foreach (var inv in invoices)
                 {
                     entries.Add(new StatementEntryDto
                     {
@@ -486,10 +482,10 @@ namespace fatortak.Services.FinancialReportService
                     .Include(je => je.Lines)
                     .Where(je => je.TenantId == TenantId && je.IsPosted && je.ReferenceType == JournalEntryReferenceType.Payment && je.Date >= fromDate && je.Date <= toDate)
                     .ToListAsync();
-                
+
                 // Note: Simplified logic to match description. Ideally we'd link payment to invoice specifically.
                 // For now, let's look for payments that mention the customer in description or link to their invoices.
-                foreach(var je in payments)
+                foreach (var je in payments)
                 {
                     if (je.Description != null && (je.Description.Contains(customer.Name) || invoiceIds.Any(id => je.Description.Contains(id.ToString()))))
                     {
@@ -512,7 +508,7 @@ namespace fatortak.Services.FinancialReportService
                 var openingBalance = 0m; // Simplified: should fetch balance before fromDate
                 var runningBalance = openingBalance;
                 var sortedEntries = entries.OrderBy(e => e.Date).ToList();
-                foreach(var entry in sortedEntries)
+                foreach (var entry in sortedEntries)
                 {
                     runningBalance += (entry.Debit - entry.Credit);
                     entry.RunningBalance = runningBalance;
@@ -546,13 +542,13 @@ namespace fatortak.Services.FinancialReportService
                 if (supplier == null) return ServiceResult<StatementReportDto>.Failure("Vendor not found");
 
                 var entries = new List<StatementEntryDto>();
-                
+
                 // Get all purchase invoices
                 var invoices = await _context.Invoices
                     .Where(i => i.CustomerId == vendorId && i.TenantId == TenantId && i.IssueDate >= fromDate && i.IssueDate <= toDate && i.InvoiceType == InvoiceTypes.Buy.ToString())
                     .ToListAsync();
-                
-                foreach(var inv in invoices)
+
+                foreach (var inv in invoices)
                 {
                     entries.Add(new StatementEntryDto
                     {
@@ -568,8 +564,8 @@ namespace fatortak.Services.FinancialReportService
                     .Include(je => je.Lines)
                     .Where(je => je.TenantId == TenantId && je.IsPosted && je.ReferenceType == JournalEntryReferenceType.Payment && je.Date >= fromDate && je.Date <= toDate)
                     .ToListAsync();
-                
-                foreach(var je in paymentEntries)
+
+                foreach (var je in paymentEntries)
                 {
                     if (je.Description != null && je.Description.Contains(supplier.Name))
                     {
@@ -591,7 +587,7 @@ namespace fatortak.Services.FinancialReportService
                 var openingBalance = 0m;
                 var runningBalance = openingBalance;
                 var sortedEntries = entries.OrderBy(e => e.Date).ToList();
-                foreach(var entry in sortedEntries)
+                foreach (var entry in sortedEntries)
                 {
                     // For Vendor, balance = Credit (Payable) - Debit (Payment)
                     runningBalance += (entry.Credit - entry.Debit);
@@ -668,11 +664,11 @@ namespace fatortak.Services.FinancialReportService
                 var projects = await projectsQuery.ToListAsync();
 
                 var items = new List<ProjectProfitabilityItemDto>();
-                foreach(var p in projects)
+                foreach (var p in projects)
                 {
                     var revenue = await _context.Invoices.Where(i => i.ProjectId == p.Id && i.TenantId == TenantId && i.InvoiceType == InvoiceTypes.Sell.ToString()).SumAsync(i => i.Total);
                     var expenses = await _context.Expenses.Where(e => e.ProjectId == p.Id && e.TenantId == TenantId).SumAsync(e => e.Total);
-                    
+
                     items.Add(new ProjectProfitabilityItemDto
                     {
                         ProjectId = p.Id,
@@ -720,7 +716,7 @@ namespace fatortak.Services.FinancialReportService
                     }).ToList();
 
                 var totalCost = categories.Sum(c => c.Amount);
-                foreach(var c in categories) c.Percentage = totalCost != 0 ? (c.Amount / totalCost) * 100 : 0;
+                foreach (var c in categories) c.Percentage = totalCost != 0 ? (c.Amount / totalCost) * 100 : 0;
 
                 return ServiceResult<ProjectCostBreakdownDto>.SuccessResult(new ProjectCostBreakdownDto
                 {
@@ -746,7 +742,7 @@ namespace fatortak.Services.FinancialReportService
 
                 var result = new MovementReportDto
                 {
-                    Title = "Cash & Bank Movement Report",
+                    Title = "Cash & Bank Daybook",
                     FromDate = fromDate,
                     ToDate = toDate,
                     Mode = accountId.HasValue ? "SingleAccount" : "AllCashAndBank"
@@ -761,19 +757,20 @@ namespace fatortak.Services.FinancialReportService
                 }
                 else
                 {
-                    // Broaden search to include existing accounts that are marked as Assets but named Cash/Bank/Custody
+                    // Broaden search to include all liquid accounts (Cash, Bank, Custody/Employee advances)
                     accountsToProcess = await _context.Accounts
-                        .Where(a => a.TenantId == TenantId && 
-                                   (a.AccountType == AccountType.Cash || 
-                                    a.AccountType == AccountType.Bank || 
-                                    a.AccountCode.StartsWith("10") || 
-                                    a.AccountCode.StartsWith("11") || 
-                                    a.AccountCode.StartsWith("15") || 
-                                    a.Name.Contains("Cash") || 
-                                    a.Name.Contains("Bank") || 
-                                    a.Name.Contains("عهده") ||
-                                    a.Name.Contains("صندوق")) && 
-                                   a.IsActive && a.IsPostable)
+                        .Where(a => a.TenantId == TenantId &&
+                                   (a.AccountType == AccountType.Cash ||
+                                    a.AccountType == AccountType.Bank ||
+                                    a.AccountCode.StartsWith("10") ||
+                                    a.AccountCode.StartsWith("11") ||
+                                    a.AccountCode.StartsWith("15") ||
+                                    a.Name.ToLower().Contains("cash") ||
+                                    a.Name.ToLower().Contains("bank") ||
+                                    a.Name.Contains("صندوق") ||
+                                    a.Name.Contains("عهدة") ||
+                                    a.Name.Contains("عهده")) &&
+                                   a.IsActive)
                         .ToListAsync();
                 }
 
@@ -799,7 +796,10 @@ namespace fatortak.Services.FinancialReportService
                     // Movements in period
                     var movementQuery = _context.JournalEntryLines
                         .Include(jel => jel.JournalEntry)
-                        .ThenInclude(je => je.Project)
+                            .ThenInclude(je => je.Project)
+                        .Include(jel => jel.JournalEntry)
+                            .ThenInclude(je => je.Lines)
+                                .ThenInclude(l => l.Account)
                         .Where(jel => jel.AccountId == account.Id && jel.JournalEntry.TenantId == TenantId && jel.JournalEntry.IsPosted && jel.JournalEntry.Date >= fromDate && jel.JournalEntry.Date <= toDate);
 
                     if (projectId.HasValue) movementQuery = movementQuery.Where(jel => jel.JournalEntry.ProjectId == projectId.Value);
@@ -818,11 +818,37 @@ namespace fatortak.Services.FinancialReportService
                         // Income/Expense mapping: Debit is Income, Credit is Expense for these asset-like accounts
                         var income = entry.Debit;
                         var expense = entry.Credit;
-                        
+
                         totalIncome += income;
                         totalExpense += expense;
-                        
+
                         runningBalance += CalculateBalanceChange(account.AccountType, entry.Debit, entry.Credit);
+
+                        // Find contra accounts (the "other side" of the journal entry)
+                        // Prioritize External accounts (Revenue, Expense, AR, AP) for better "Category" display
+                        var otherLines = entry.JournalEntry.Lines
+                            .Where(l => l.AccountId != entry.AccountId)
+                            .ToList();
+
+                        // 1. Try to find a Revenue or Expense account
+                        var categoryAccount = otherLines.FirstOrDefault(l => l.Account.AccountType == AccountType.Revenue || l.Account.AccountType == AccountType.Expense)?.Account;
+                        
+                        // 2. If not found, try to find any account NOT in the liquid/custody range (10, 11, 15)
+                        if (categoryAccount == null)
+                        {
+                            categoryAccount = otherLines.FirstOrDefault(l => 
+                                !l.Account.AccountCode.StartsWith("10") && 
+                                !l.Account.AccountCode.StartsWith("11") && 
+                                !l.Account.AccountCode.StartsWith("15"))?.Account;
+                        }
+
+                        // 3. Falling back to any other account in the JE
+                        if (categoryAccount == null && otherLines.Any())
+                        {
+                            categoryAccount = otherLines.First().Account;
+                        }
+
+                        string contraAccountName = categoryAccount?.Name ?? "N/A";
 
                         accountMovement.Movements.Add(new MovementEntryDto
                         {
@@ -830,6 +856,7 @@ namespace fatortak.Services.FinancialReportService
                             EntryNumber = entry.JournalEntry.EntryNumber,
                             Date = entry.JournalEntry.Date,
                             Description = entry.Description ?? entry.JournalEntry.Description,
+                            ContraAccount = contraAccountName,
                             Reference = entry.Reference,
                             Debit = entry.Debit,
                             Credit = entry.Credit,
@@ -837,7 +864,7 @@ namespace fatortak.Services.FinancialReportService
                             Expense = expense,
                             RunningBalance = runningBalance,
                             ProjectName = entry.JournalEntry.Project?.Name,
-                            AccountName = account.Name // Track source account
+                            AccountName = account.Name
                         });
                     }
 
@@ -848,20 +875,52 @@ namespace fatortak.Services.FinancialReportService
                     result.Accounts.Add(accountMovement);
                 }
 
-                // Fill global consolidated data if not single mode
+                // Consolidated mode: Aggregate all accounts into one pool (Daybook style)
                 if (result.Mode == "AllCashAndBank")
                 {
                     result.OpeningBalance = result.Accounts.Sum(a => a.OpeningBalance);
-                    result.TotalIncome = result.Accounts.Sum(a => a.TotalIncome);
-                    result.TotalExpense = result.Accounts.Sum(a => a.TotalExpense);
-                    result.ClosingBalance = result.Accounts.Sum(a => a.ClosingBalance);
                     
-                    // Flatten and sort movements for the consolidated view
-                    result.Movements = result.Accounts
-                        .SelectMany(a => a.Movements)
-                        .OrderBy(m => m.Date)
-                        .ThenBy(m => m.EntryNumber)
+                    // Group all movements by Journal Entry to identify internal pool transfers
+                    var allLines = result.Accounts.SelectMany(a => a.Movements).ToList();
+                    var groupedByJe = allLines.GroupBy(m => m.JournalEntryId)
+                        .OrderBy(g => g.First().Date)
+                        .ThenBy(g => g.First().EntryNumber)
                         .ToList();
+
+                    var consolidatedMovements = new List<MovementEntryDto>();
+                    decimal poolTotalIncome = 0;
+                    decimal poolTotalExpense = 0;
+
+                    foreach (var group in groupedByJe)
+                    {
+                        var jeId = group.Key;
+                        var movementLines = group.ToList();
+                        
+                        // Calculate net effect on the "Liquid Pool"
+                        var netDebit = movementLines.Sum(m => m.Debit);
+                        var netCredit = movementLines.Sum(m => m.Credit);
+                        var netFlow = netDebit - netCredit;
+
+                        // Grand totals ONLY count net movements in/out of the liquid pool
+                        if (netFlow > 0) poolTotalIncome += netFlow;
+                        else if (netFlow < 0) poolTotalExpense += Math.Abs(netFlow);
+
+                        // DEDUPLICATION: To show "انه طلع عهدة 1000 اتصرف منها 200 ورجع 800" as clear steps:
+                        // 1. Give Custody (Cash -> Custody): Shown once as "Out" from Cash (or simple transfer)
+                        // 2. Expense (Custody -> Expense): Shown once as "Out" from Custody
+                        // 3. Return (Custody -> Cash): Shown once as "In" to Cash
+                        
+                        // If it's an internal transfer (e.g. JE-0008, JE-0010), we show it only ONCE.
+                        // We pick the "Main" line (usually the one from Cash/Bank, or just the first one)
+                        var representative = movementLines.OrderByDescending(m => m.Debit + m.Credit).First();
+                        
+                        consolidatedMovements.Add(representative);
+                    }
+
+                    result.Movements = consolidatedMovements;
+                    result.TotalIncome = poolTotalIncome;
+                    result.TotalExpense = poolTotalExpense;
+                    result.ClosingBalance = result.OpeningBalance + poolTotalIncome - poolTotalExpense;
                 }
                 else if (result.Accounts.Any())
                 {
