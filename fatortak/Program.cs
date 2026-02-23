@@ -21,20 +21,21 @@ using fatortak.Services.ItemService;
 using fatortak.Services.NotificationService;
 using fatortak.Services.QuotaService;
 using fatortak.Services.ReminderService;
-using fatortak.Services.ReportsService;
+
 using fatortak.Services.SubscriptionService;
 using fatortak.Services.TenantService;
 using fatortak.Services.TokenService;
 using fatortak.Services.UserService;
 using fatortak.Services.TransactionService;
 using fatortak.Services.BackfillService;
-using fatortak.Services.ReportService;
+
 using fatortak.Services.HR;
 using fatortak.Services.BranchService;
 using fatortak.Services.ProjectService;
 using fatortak.Services.ProjectService;
 using fatortak.Services.AccountingService;
 using fatortak.Services.AccountingPostingService;
+using fatortak.Services.FinancialReportService;
 using fatortak.Services.CustodyService;
 using fatortak.Services.ExpenseCategoryService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -132,7 +133,7 @@ namespace fatortak
             builder.Services.AddScoped<ICustomerService, CustomerService>();
             builder.Services.AddScoped<IInvoiceService, InvoiceService>();
             builder.Services.AddScoped<IItemService, ItemService>();
-            builder.Services.AddScoped<IReportsService, ReportsService>();
+
             builder.Services.AddScoped<ITenantService, TenantService>();
             builder.Services.AddScoped<ITokenService, TokenService>();
             builder.Services.AddScoped<IUserService, UserService>();
@@ -153,7 +154,7 @@ namespace fatortak
             builder.Services.AddHostedService<NotificationCleanupService>();
             builder.Services.AddScoped<ITransactionService, TransactionService>();
             builder.Services.AddScoped<IBackfillService, BackfillService>();
-            builder.Services.AddScoped<IReportExportService, ReportExportService>();
+
             builder.Services.AddScoped<IPayrollService, PayrollService>();
             builder.Services.AddScoped<IBranchService, BranchService>();
             builder.Services.AddScoped<IProjectService, ProjectService>();
@@ -162,6 +163,7 @@ namespace fatortak
             builder.Services.AddScoped<IAccountingPostingService, AccountingPostingService>();
             builder.Services.AddScoped<ICustodyService, CustodyService>();
             builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
+            builder.Services.AddScoped<IFinancialReportService, fatortak.Services.FinancialReportService.FinancialReportService>();
             #endregion
 
 

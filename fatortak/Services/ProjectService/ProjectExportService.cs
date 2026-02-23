@@ -1,6 +1,5 @@
 using fatortak.Context;
 using fatortak.Entities;
-using fatortak.Services.ReportService;
 using iText.IO.Font;
 using iText.Kernel.Colors;
 using iText.Kernel.Font;
@@ -67,16 +66,16 @@ namespace fatortak.Services.ProjectService
                 // 1. Header (Company Info & Logo placeholder)
                 Table headerTable = new Table(UnitValue.CreatePercentArray(new float[] { 70, 30 })).UseAllAvailableWidth();
                 
-                Cell companyInfoCell = new Cell().Add(new Paragraph(isRtl ? ArabicShaper.Shape(company?.Name ?? "شركة") : company?.Name ?? "Company"))
+                Cell companyInfoCell = new Cell().Add(new Paragraph(company?.Name ?? "Company"))
                     .SetFontSize(16).SetBold().SetBorder(iText.Layout.Borders.Border.NO_BORDER);
-                companyInfoCell.Add(new Paragraph(isRtl ? ArabicShaper.Shape(company?.Address ?? "") : company?.Address ?? ""))
+                companyInfoCell.Add(new Paragraph(company?.Address ?? ""))
                     .SetFontSize(10).SetBorder(iText.Layout.Borders.Border.NO_BORDER);
                 companyInfoCell.Add(new Paragraph(company?.Phone ?? ""))
                     .SetFontSize(10).SetBorder(iText.Layout.Borders.Border.NO_BORDER);
 
                 headerTable.AddCell(companyInfoCell);
 
-                Cell titleCell = new Cell().Add(new Paragraph(isRtl ? ArabicShaper.Shape("عرض سعر") : "QUOTATION"))
+                Cell titleCell = new Cell().Add(new Paragraph("QUOTATION"))
                     .SetFontSize(20).SetBold().SetTextAlignment(TextAlignment.CENTER)
                     .SetVerticalAlignment(VerticalAlignment.MIDDLE)
                     .SetBackgroundColor(ColorConstants.LIGHT_GRAY)
@@ -89,15 +88,15 @@ namespace fatortak.Services.ProjectService
                 // 2. Project / Client Information
                 Table infoTable = new Table(UnitValue.CreatePercentArray(new float[] { 50, 50 })).UseAllAvailableWidth();
                 
-                Cell clientCell = new Cell().Add(new Paragraph(isRtl ? ArabicShaper.Shape("إلى السيد / السادة:") : "To:"))
+                Cell clientCell = new Cell().Add(new Paragraph(isRtl ? "إلى السيد / السادة:" : "To:"))
                     .SetBold().SetFontSize(11).SetBorder(iText.Layout.Borders.Border.NO_BORDER);
-                clientCell.Add(new Paragraph(isRtl ? ArabicShaper.Shape(project.Customer?.Name ?? "") : project.Customer?.Name ?? ""))
+                clientCell.Add(new Paragraph(project.Customer?.Name ?? ""))
                     .SetFontSize(12).SetPaddingLeft(10);
                 infoTable.AddCell(clientCell);
 
-                Cell projectCell = new Cell().Add(new Paragraph(isRtl ? ArabicShaper.Shape("اسم المشروع:") : "Project Name:"))
+                Cell projectCell = new Cell().Add(new Paragraph(isRtl ? "اسم المشروع:" : "Project Name:"))
                     .SetBold().SetFontSize(11).SetBorder(iText.Layout.Borders.Border.NO_BORDER);
-                projectCell.Add(new Paragraph(isRtl ? ArabicShaper.Shape(project.Name) : project.Name))
+                projectCell.Add(new Paragraph(project.Name))
                     .SetFontSize(12).SetPaddingLeft(10);
                 infoTable.AddCell(projectCell);
 
@@ -111,7 +110,7 @@ namespace fatortak.Services.ProjectService
                 string[] headers = isRtl ? new[] { "م", "التوصيف", "الكمية", "الوحدة", "الإجمالي" } : new[] { "#", "Description", "Qty", "Unit", "Total" };
                 foreach (var h in headers)
                 {
-                    table.AddHeaderCell(new Cell().Add(new Paragraph(isRtl ? ArabicShaper.Shape(h) : h))
+                    table.AddHeaderCell(new Cell().Add(new Paragraph(h))
                         .SetBackgroundColor(ColorConstants.LIGHT_GRAY).SetBold().SetTextAlignment(TextAlignment.CENTER));
                 }
 
@@ -119,9 +118,9 @@ namespace fatortak.Services.ProjectService
                 foreach (var line in project.ProjectLines)
                 {
                     table.AddCell(new Cell().Add(new Paragraph(index.ToString())).SetTextAlignment(TextAlignment.CENTER));
-                    table.AddCell(new Cell().Add(new Paragraph(isRtl ? ArabicShaper.Shape(line.Description) : line.Description)));
+                    table.AddCell(new Cell().Add(new Paragraph(line.Description)));
                     table.AddCell(new Cell().Add(new Paragraph(line.Quantity.ToString("N2"))).SetTextAlignment(TextAlignment.CENTER));
-                    table.AddCell(new Cell().Add(new Paragraph(isRtl ? ArabicShaper.Shape(line.Unit ?? "") : line.Unit ?? "")).SetTextAlignment(TextAlignment.CENTER));
+                    table.AddCell(new Cell().Add(new Paragraph(line.Unit ?? "")).SetTextAlignment(TextAlignment.CENTER));
                     table.AddCell(new Cell().Add(new Paragraph(line.LineTotal.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT));
                     index++;
                 }
@@ -143,18 +142,18 @@ namespace fatortak.Services.ProjectService
                 // 5. Terms & Notes
                 if (!string.IsNullOrEmpty(project.PaymentTerms) || !string.IsNullOrEmpty(project.Notes))
                 {
-                    document.Add(new Paragraph(isRtl ? ArabicShaper.Shape("الشروط والملاحظات:") : "Terms & Conditions:")
+                    document.Add(new Paragraph(isRtl ? "الشروط والملاحظات:" : "Terms & Conditions:")
                         .SetBold().SetUnderline());
                     
                     if (!string.IsNullOrEmpty(project.PaymentTerms))
                     {
-                        document.Add(new Paragraph(isRtl ? ArabicShaper.Shape(project.PaymentTerms) : project.PaymentTerms)
+                        document.Add(new Paragraph(project.PaymentTerms)
                             .SetFontSize(9).SetItalic());
                     }
 
                     if (!string.IsNullOrEmpty(project.Notes))
                     {
-                        document.Add(new Paragraph(isRtl ? ArabicShaper.Shape(project.Notes) : project.Notes)
+                        document.Add(new Paragraph(project.Notes)
                             .SetFontSize(9));
                     }
                 }
@@ -162,9 +161,9 @@ namespace fatortak.Services.ProjectService
                 // 6. Signature
                 document.Add(new Paragraph("\n\n"));
                 Table footerTable = new Table(UnitValue.CreatePercentArray(new float[] { 50, 50 })).UseAllAvailableWidth();
-                footerTable.AddCell(new Cell().Add(new Paragraph(isRtl ? ArabicShaper.Shape("توقيع العميل") : "Customer Signature"))
+                footerTable.AddCell(new Cell().Add(new Paragraph(isRtl ? "توقيع العميل" : "Customer Signature"))
                     .SetBorder(iText.Layout.Borders.Border.NO_BORDER).SetTextAlignment(TextAlignment.CENTER));
-                footerTable.AddCell(new Cell().Add(new Paragraph(isRtl ? ArabicShaper.Shape("ختم الشركة") : "Company Stamp"))
+                footerTable.AddCell(new Cell().Add(new Paragraph(isRtl ? "ختم الشركة" : "Company Stamp"))
                     .SetBorder(iText.Layout.Borders.Border.NO_BORDER).SetTextAlignment(TextAlignment.CENTER));
                 document.Add(footerTable);
 
@@ -175,7 +174,7 @@ namespace fatortak.Services.ProjectService
 
         private void AddTotalRow(Table table, string label, decimal value, bool isRtl, bool isBold = false)
         {
-            Cell labelCell = new Cell().Add(new Paragraph(isRtl ? ArabicShaper.Shape(label) : label))
+            Cell labelCell = new Cell().Add(new Paragraph(label))
                 .SetTextAlignment(TextAlignment.RIGHT).SetBorder(iText.Layout.Borders.Border.NO_BORDER);
             Cell valueCell = new Cell().Add(new Paragraph(value.ToString("N2") + " EGP"))
                 .SetTextAlignment(TextAlignment.RIGHT).SetBorder(new SolidBorder(1));

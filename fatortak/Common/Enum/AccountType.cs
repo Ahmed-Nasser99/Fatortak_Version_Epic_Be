@@ -34,7 +34,24 @@ namespace fatortak.Common.Enum
         /// Expense: Costs incurred in business operations (e.g., Rent, Salaries, Utilities)
         /// Balance = Debit - Credit
         /// </summary>
-        Expense = 5
+        Expense = 5,
+
+        /// <summary>
+        /// Cash: Liquid cash on hand
+        /// Balance = Debit - Credit
+        /// </summary>
+        Cash = 6,
+
+        /// <summary>
+        /// Bank: Funds in bank accounts
+        /// Balance = Debit - Credit
+        /// </summary>
+        Bank = 7,
+
+        /// <summary>
+        /// Other: Miscellaneous accounts
+        /// </summary>
+        Other = 8
     }
 }
 
