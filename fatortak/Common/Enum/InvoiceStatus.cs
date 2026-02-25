@@ -8,6 +8,8 @@
         Overdue,
         Cancelled,
         PartialPaid,
+        PartPaid,
+        AwaitingChequeClearance,
         Posted
     }
 }

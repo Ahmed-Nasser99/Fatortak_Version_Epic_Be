@@ -11,6 +11,7 @@ using fatortak.Services.BackfillService;
 using fatortak.Services.BranchService;
 using fatortak.Services.ChatService;
 using fatortak.Services.CompanyService;
+using fatortak.Services.ChequeService;
 using fatortak.Services.CustodyService;
 using fatortak.Services.CustomerService;
 using fatortak.Services.DashboardService;
@@ -158,6 +159,7 @@ namespace fatortak
             builder.Services.AddScoped<IAccountingService, AccountingService>();
             builder.Services.AddScoped<IAccountingPostingService, AccountingPostingService>();
             builder.Services.AddScoped<ICustodyService, CustodyService>();
+            builder.Services.AddScoped<IChequeService, ChequeService>();
             builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
             builder.Services.AddScoped<IFinancialReportService, fatortak.Services.FinancialReportService.FinancialReportService>();
             #endregion

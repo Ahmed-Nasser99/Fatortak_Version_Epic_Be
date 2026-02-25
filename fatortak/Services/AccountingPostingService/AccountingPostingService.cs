@@ -442,6 +442,90 @@ namespace fatortak.Services.AccountingPostingService
                                      invoiceTypeStr == "sales" ||
                                      invoiceTypeStr == "sale";
 
+                // Special handling for Cheque lifecycle events
+                if (paymentMethod == "Cheque_Deposited" || paymentMethod == "Cheque_Bounced")
+                {
+                    var chequesAccount = await GetOrCreateSystemAccountAsync("1600", "Cheques Under Collection", AccountType.Asset);
+                    var entryNumberSpecial = await GenerateEntryNumberAsync();
+                    var journalEntrySpecial = new JournalEntry
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = TenantId,
+                        EntryNumber = entryNumberSpecial,
+                        Date = DateTime.UtcNow.Date,
+                        ReferenceType = JournalEntryReferenceType.Payment,
+                        ReferenceId = referenceId,
+                        ProjectId = invoice.ProjectId,
+                        Description = paymentMethod == "Cheque_Deposited"
+                            ? $"Cheque Deposit for Invoice {invoice.InvoiceNumber}"
+                            : $"Cheque Bounced for Invoice {invoice.InvoiceNumber}",
+                        IsPosted = true,
+                        PostedAt = DateTime.UtcNow,
+                        PostedBy = CurrentUserId,
+                        CreatedAt = DateTime.UtcNow,
+                        CreatedBy = CurrentUserId
+                    };
+                    _context.JournalEntries.Add(journalEntrySpecial);
+
+                    if (paymentMethod == "Cheque_Deposited")
+                    {
+                        // Dr Bank (1100 by default since no specific bank is selected)
+                        var bankAccount = await GetOrCreateSystemAccountAsync("1100", "Bank Account", AccountType.Asset);
+                        _context.JournalEntryLines.Add(new JournalEntryLine
+                        {
+                            Id = Guid.NewGuid(),
+                            JournalEntryId = journalEntrySpecial.Id,
+                            AccountId = bankAccount!.Id,
+                            Debit = amount,
+                            Credit = 0,
+                            Description = $"Bank Deposit for Cheque"
+                        });
+
+                        // Cr Cheques Under Collection (1600)
+                        _context.JournalEntryLines.Add(new JournalEntryLine
+                        {
+                            Id = Guid.NewGuid(),
+                            JournalEntryId = journalEntrySpecial.Id,
+                            AccountId = chequesAccount!.Id,
+                            Debit = 0,
+                            Credit = amount,
+                            Description = $"Clearance of Cheque Under Collection"
+                        });
+                    }
+                    else if (paymentMethod == "Cheque_Bounced")
+                    {
+                        // Dr Accounts Receivable (Customer owes us again)
+                        var accountsReceivable = invoice.Customer?.AccountId != null
+                            ? await _context.Accounts.FirstOrDefaultAsync(a => a.Id == invoice.Customer.AccountId && a.TenantId == TenantId)
+                            : await GetOrCreateSystemAccountAsync("1200", "Accounts Receivable", AccountType.Asset);
+
+                        _context.JournalEntryLines.Add(new JournalEntryLine
+                        {
+                            Id = Guid.NewGuid(),
+                            JournalEntryId = journalEntrySpecial.Id,
+                            AccountId = accountsReceivable!.Id,
+                            Debit = amount,
+                            Credit = 0,
+                            Description = $"Reversal of payment due to Bounced Cheque"
+                        });
+
+                        // Cr Cheques Under Collection (1600)
+                        _context.JournalEntryLines.Add(new JournalEntryLine
+                        {
+                            Id = Guid.NewGuid(),
+                            JournalEntryId = journalEntrySpecial.Id,
+                            AccountId = chequesAccount!.Id,
+                            Debit = 0,
+                            Credit = amount,
+                            Description = $"Cancellation of Cheque Under Collection"
+                        });
+                    }
+
+                    await _context.SaveChangesAsync();
+                    if (transaction != null) await transaction.CommitAsync();
+                    return true;
+                }
+
                 // Get accounts
                 Account? accountsReceivableAccount = null;
                 Account? accountsPayableAccount = null;

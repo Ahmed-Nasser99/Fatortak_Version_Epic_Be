@@ -37,7 +37,27 @@ namespace fatortak.Seeding
 
             if (existingAccounts)
             {
-                // Accounts already seeded for this tenant
+                // Checks for specific missing accounts if tenant was created earlier
+                var hasChequesAccount = await context.Accounts.AnyAsync(a => a.TenantId == tenantId && a.AccountCode == "1600");
+                if (!hasChequesAccount)
+                {
+                    context.Accounts.Add(new Account
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = tenantId,
+                        AccountCode = "1600",
+                        Name = "Cheques Under Collection",
+                        AccountType = AccountType.Asset,
+                        Level = 0,
+                        IsActive = true,
+                        IsPostable = true,
+                        IsSystem = true,
+                        Description = "Cheques received from customers but not yet deposited",
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    await context.SaveChangesAsync();
+                }
+
                 return;
             }
 
@@ -131,6 +151,21 @@ namespace fatortak.Seeding
                 IsPostable = false, // Parent account for employee custody accounts
                 IsSystem = true,
                 Description = "Employee advances and custody accounts (parent account)",
+                CreatedAt = DateTime.UtcNow
+            });
+
+            accounts.Add(new Account
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                AccountCode = "1600",
+                Name = "Cheques Under Collection",
+                AccountType = AccountType.Asset,
+                Level = 0,
+                IsActive = true,
+                IsPostable = true,
+                IsSystem = true,
+                Description = "Cheques received from customers but not yet deposited",
                 CreatedAt = DateTime.UtcNow
             });
 

@@ -1681,20 +1681,53 @@ namespace fatortak.Services.InvoiceService
                 // Update status
                 if (invoice.AmountPaid >= invoice.Total)
                 {
-                    invoice.Status = InvoiceStatus.Paid.ToString();
-                    invoice.PaidAt = DateTime.UtcNow;
-                    invoice.Customer.LastEngagementDate = DateTime.UtcNow;
+                    if (dto.PaymentMethod?.ToLower() == "cheque")
+                    {
+                        invoice.Status = InvoiceStatus.AwaitingChequeClearance.ToString();
+                    }
+                    else
+                    {
+                        invoice.Status = InvoiceStatus.Paid.ToString();
+                        invoice.PaidAt = DateTime.UtcNow;
+                        invoice.Customer.LastEngagementDate = DateTime.UtcNow;
+                    }
                 }
                 else
                 {
-                    invoice.Status = InvoiceStatus.PartialPaid.ToString();
+                    if (dto.PaymentMethod?.ToLower() == "cheque")
+                    {
+                        invoice.Status = InvoiceStatus.PartPaid.ToString();
+                    }
+                    else
+                    {
+                        invoice.Status = InvoiceStatus.PartialPaid.ToString();
+                    }
                 }
 
                 // Save changes to invoice
                 await _context.SaveChangesAsync();
 
-                // Register payment (Transaction + Accounting Entry)
-                await RegisterPaymentAsync(invoice, dto.Amount, dto.PaymentMethod, dto.AttachmentUrl, dto.PaymentAccountId);
+                // Register payment (Transaction + Accounting Entry + optional Cheque)
+                var transactionResponse = await RegisterPaymentAsync(invoice, dto.Amount, dto.PaymentMethod, dto.AttachmentUrl, dto.PaymentAccountId);
+
+                if (dto.PaymentMethod?.ToLower() == "cheque" && !string.IsNullOrEmpty(dto.ChequeNumber))
+                {
+                    var cheque = new Cheque
+                    {
+                        TenantId = TenantId,
+                        ChequeNumber = dto.ChequeNumber,
+                        BankName = dto.ChequeBankName ?? "Unknown Bank",
+                        DueDate = dto.ChequeDueDate ?? DateTime.UtcNow,
+                        Amount = dto.Amount,
+                        Status = ChequeStatus.UnderCollection.ToString(),
+                        InvoiceId = invoice.Id,
+                        PaymentAccountId = dto.PaymentAccountId,
+                        TransactionId = transactionResponse?.Id, // Link to the newly created payment transaction
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    _context.Cheques.Add(cheque);
+                    await _context.SaveChangesAsync();
+                }
 
                 // Trigger project status check if project is linked and invoice is now paid
                 if (invoice.ProjectId.HasValue && invoice.Status == InvoiceStatus.Paid.ToString())
@@ -1711,14 +1744,19 @@ namespace fatortak.Services.InvoiceService
             }
         }
 
-        private async Task RegisterPaymentAsync(Invoice invoice, decimal amount, string? paymentMethod = "Cash", string? attachmentUrl = null, Guid? paymentAccountId = null)
+        private async Task<Transaction?> RegisterPaymentAsync(Invoice invoice, decimal amount, string? paymentMethod = "Cash", string? attachmentUrl = null, Guid? paymentAccountId = null)
         {
-            if (amount <= 0) return;
+            if (amount <= 0) return null;
 
             var isSalesInvoice = invoice.InvoiceType == InvoiceTypes.Sell.ToString() || invoice.InvoiceType?.ToLower() == "sales" || invoice.InvoiceType?.ToLower() == "sale";
             var transactionType = isSalesInvoice ? "PaymentReceived" : "PaymentMade";
             var direction = isSalesInvoice ? "Credit" : "Debit";
             var desc = isSalesInvoice ? "Payment received" : "Payment made";
+
+            if (paymentMethod?.ToLower() == "cheque")
+            {
+                desc = isSalesInvoice ? "Cheque payment received" : "Cheque payment made";
+            }
 
             // Get current user ID
             var userIdString = _httpContextAccessor.HttpContext?.User?.FindFirst("UserId")?.Value;
@@ -1774,7 +1812,11 @@ namespace fatortak.Services.InvoiceService
                 {
                     _logger.LogError(ex, "Error auto-posting payment for invoice {InvoiceId} to accounting", invoice.Id);
                 }
+                
+                return transactionResult.Data;
             }
+            
+            return null;
         }
 
         private string GenerateImageWithFolderName(string? imageName)

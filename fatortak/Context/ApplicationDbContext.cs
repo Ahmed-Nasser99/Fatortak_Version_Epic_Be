@@ -43,6 +43,7 @@ namespace fatortak.Context
         public DbSet<Branch> Branches { get; set; }
         public DbSet<Project> Projects { get; set; }
         public DbSet<ProjectLine> ProjectLines { get; set; }
+        public DbSet<Cheque> Cheques { get; set; }
 
         // Accounting module
         public DbSet<Account> Accounts { get; set; }
@@ -67,7 +68,23 @@ namespace fatortak.Context
                 .HasForeignKey(ii => ii.InvoiceId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            modelBuilder.Entity<Cheque>()
+                .HasOne(c => c.Invoice)
+                .WithMany()
+                .HasForeignKey(c => c.InvoiceId)
+                .OnDelete(DeleteBehavior.Cascade);
 
+            modelBuilder.Entity<Cheque>()
+                .HasOne(c => c.PaymentAccount)
+                .WithMany()
+                .HasForeignKey(c => c.PaymentAccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Cheque>()
+                .HasOne(c => c.Tenant)
+                .WithMany()
+                .HasForeignKey(c => c.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ApplicationUser>()
                 .HasOne(u => u.Tenant)
