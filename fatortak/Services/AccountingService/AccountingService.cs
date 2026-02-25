@@ -102,7 +102,7 @@ namespace fatortak.Services.AccountingService
                     ParentAccountId = dto.ParentAccountId,
                     Level = level,
                     IsActive = dto.IsActive,
-                    IsPostable = dto.IsPostable && !dto.ParentAccountId.HasValue, // Only root or leaf accounts can be postable
+                    IsPostable = dto.IsPostable, // Parent accounts automatically get their IsPostable set to false when a child is added
                     Description = dto.Description,
                     CreatedAt = DateTime.UtcNow,
                     CreatedBy = CurrentUserId

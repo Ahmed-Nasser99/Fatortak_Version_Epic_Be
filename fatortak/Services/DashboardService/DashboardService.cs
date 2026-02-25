@@ -448,13 +448,18 @@ namespace fatortak.Services.DashboardService
         private (DateTime start, DateTime end) GetDateRange(string period)
         {
             var now = DateTime.UtcNow;
+            
+            // Generate a safe timezone-padded "end of current local day", since IssueDate is often picked
+            // locally (e.g., 2026-02-26) while UTC now is still the 25th, preventing premature exclusion.
+            var endOfTodaySafe = now.Date.AddDays(2).AddTicks(-1);
+
             return period switch
             {
-                "week" => (now.AddDays(-7), now),
-                "month" => (new DateTime(now.Year, now.Month, 1), now),
-                "quarter" => (now.AddMonths(-3), now),
-                "year" => (new DateTime(now.Year, 1, 1), now),
-                _ => (new DateTime(now.Year, now.Month, 1), now)
+                "week" => (now.Date.AddDays(-7), endOfTodaySafe),
+                "month" => (new DateTime(now.Year, now.Month, 1), endOfTodaySafe),
+                "quarter" => (new DateTime(now.Year, now.Month, 1).AddMonths(-3), endOfTodaySafe),
+                "year" => (new DateTime(now.Year, 1, 1), endOfTodaySafe),
+                _ => (new DateTime(now.Year, now.Month, 1), endOfTodaySafe)
             };
         }
         #endregion

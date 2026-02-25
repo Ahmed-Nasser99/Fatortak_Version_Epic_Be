@@ -459,8 +459,8 @@ namespace fatortak.Services.InvoiceService
                 }
 
                 // Call PostInvoiceAsync for non-draft, non-cancelled statuses to ensure AR balance is updated immediately
-                var activeStatusCreate = new[] { InvoiceStatus.Pending.ToString(), InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.Paid.ToString(), InvoiceStatus.Overdue.ToString(), InvoiceStatus.Posted.ToString() };
-                if (activeStatusCreate.Contains(invoice.Status))
+                var activeStatusCreate = new[] { InvoiceStatus.Pending.ToString(), InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.PartPaid.ToString(), InvoiceStatus.AwaitingChequeClearance.ToString(), InvoiceStatus.Paid.ToString(), InvoiceStatus.Overdue.ToString(), InvoiceStatus.Posted.ToString() };
+                if (activeStatusCreate.Contains(invoice.Status, StringComparer.OrdinalIgnoreCase))
                 {
                     await _accountingPostingService.PostInvoiceAsync(invoice.Id);
                 }
@@ -963,8 +963,8 @@ namespace fatortak.Services.InvoiceService
                 _context.Invoices.Update(invoice);
 
                 // Call PostInvoiceAsync for non-draft, non-cancelled statuses to ensure AR balance is updated immediately
-                var activeStatusUpdate = new[] { InvoiceStatus.Pending.ToString(), InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.Paid.ToString(), InvoiceStatus.Overdue.ToString(), InvoiceStatus.Posted.ToString() };
-                if (activeStatusUpdate.Contains(invoice.Status))
+                var activeStatusUpdate = new[] { InvoiceStatus.Pending.ToString(), InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.PartPaid.ToString(), InvoiceStatus.AwaitingChequeClearance.ToString(), InvoiceStatus.Paid.ToString(), InvoiceStatus.Overdue.ToString(), InvoiceStatus.Posted.ToString() };
+                if (activeStatusUpdate.Contains(invoice.Status, StringComparer.OrdinalIgnoreCase))
                 {
                     await _accountingPostingService.PostInvoiceAsync(invoice.Id);
                 }
@@ -1331,8 +1331,8 @@ namespace fatortak.Services.InvoiceService
                 }
 
                 // Post to AR if transitioning to an active status
-                var activeStatusTransitions = new[] { InvoiceStatus.Pending.ToString(), InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.Paid.ToString(), InvoiceStatus.Overdue.ToString(), InvoiceStatus.Posted.ToString() };
-                if (activeStatusTransitions.Contains(status))
+                var activeStatusTransitions = new[] { InvoiceStatus.Pending.ToString(), InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.PartPaid.ToString(), InvoiceStatus.AwaitingChequeClearance.ToString(), InvoiceStatus.Paid.ToString(), InvoiceStatus.Overdue.ToString(), InvoiceStatus.Posted.ToString() };
+                if (activeStatusTransitions.Contains(status, StringComparer.OrdinalIgnoreCase))
                 {
                     await _accountingPostingService.PostInvoiceAsync(invoiceId);
                 }
