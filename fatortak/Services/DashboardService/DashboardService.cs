@@ -163,6 +163,14 @@ namespace fatortak.Services.DashboardService
                 .Where(jel => jel.Account.AccountCode.StartsWith("1100"))
                 .SumAsync(jel => jel.Debit - jel.Credit);
 
+            stats.TotalCustody = await cumulativeQuery
+                .Where(jel => jel.Account.AccountCode.StartsWith("1500"))
+                .SumAsync(jel => jel.Debit - jel.Credit);
+
+            stats.TotalChequesUnderCollection = await cumulativeQuery
+                .Where(jel => jel.Account.AccountCode.StartsWith("1600"))
+                .SumAsync(jel => jel.Debit - jel.Credit);
+
             stats.CurrentBalance = stats.TotalCashAvailable + stats.TotalBankAvailable;
 
             // Non-financial counts (still document-based for now)

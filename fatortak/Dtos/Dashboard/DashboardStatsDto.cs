@@ -46,6 +46,8 @@
         public decimal StockValue { get; set; }
         public decimal TotalReceivables { get; set; }
         public decimal TotalPayables { get; set; }
+        public decimal TotalCustody { get; set; }             // NEW: 1500 accounts
+        public decimal TotalChequesUnderCollection { get; set; } // NEW: 1600 accounts
 
         // Breakdown and date range for tooltips
         public RevenueBreakdown RevenueBreakdown { get; set; }
