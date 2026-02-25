@@ -4,14 +4,22 @@ using fatortak.Entities;
 using fatortak.Helpers;
 using fatortak.Middlewares;
 using fatortak.Seeding;
+using fatortak.Services.AccountingPostingService;
+using fatortak.Services.AccountingService;
 using fatortak.Services.AuthService;
+using fatortak.Services.BackfillService;
+using fatortak.Services.BranchService;
 using fatortak.Services.ChatService;
 using fatortak.Services.CompanyService;
+using fatortak.Services.CustodyService;
 using fatortak.Services.CustomerService;
 using fatortak.Services.DashboardService;
 using fatortak.Services.EmailService;
+using fatortak.Services.ExpenseCategoryService;
 using fatortak.Services.ExpenseService;
+using fatortak.Services.FinancialReportService;
 using fatortak.Services.GeminiService;
+using fatortak.Services.HR;
 using fatortak.Services.HR.AttendanceService;
 using fatortak.Services.HR.DepartmentService;
 using fatortak.Services.HR.EmployeeService;
@@ -19,33 +27,21 @@ using fatortak.Services.HR.WorkSettingService;
 using fatortak.Services.InvoiceService;
 using fatortak.Services.ItemService;
 using fatortak.Services.NotificationService;
+using fatortak.Services.ProjectService;
 using fatortak.Services.QuotaService;
 using fatortak.Services.ReminderService;
-
 using fatortak.Services.SubscriptionService;
 using fatortak.Services.TenantService;
 using fatortak.Services.TokenService;
-using fatortak.Services.UserService;
 using fatortak.Services.TransactionService;
-using fatortak.Services.BackfillService;
-
-using fatortak.Services.HR;
-using fatortak.Services.BranchService;
-using fatortak.Services.ProjectService;
-using fatortak.Services.ProjectService;
-using fatortak.Services.AccountingService;
-using fatortak.Services.AccountingPostingService;
-using fatortak.Services.FinancialReportService;
-using fatortak.Services.CustodyService;
-using fatortak.Services.ExpenseCategoryService;
+using fatortak.Services.UserService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using StudBook.Helpers;
 using System.Text;
-using Microsoft.AspNetCore.DataProtection;
-using System.IO;
 
 namespace fatortak
 {
@@ -224,16 +220,16 @@ namespace fatortak
             app.UseAuthentication();
             app.UseAuthorization();
             app.UseMiddleware<TenantResolutionMiddleware>();
-            app.UseMiddleware<SubscriptionValidationMiddleware>();
+            // app.UseMiddleware<SubscriptionValidationMiddleware>();
 
             app.UseStaticFiles();
             app.MapControllers();
-            
+
             // Seed data on startup
             try
             {
                 SeedingAdminUser.Seed(app).GetAwaiter().GetResult();
-                
+
                 // Seed Chart of Accounts for all existing tenants
                 using (var scope = app.Services.CreateScope())
                 {

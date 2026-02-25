@@ -806,7 +806,7 @@ namespace fatortak.Services.FinancialReportService
 
                     var entries = await movementQuery
                         .OrderBy(jel => jel.JournalEntry.Date)
-                        .ThenBy(jel => jel.JournalEntry.CreatedAt)
+                        .ThenBy(jel => jel.JournalEntry.EntryNumber)
                         .ToListAsync();
 
                     decimal runningBalance = accountMovement.OpeningBalance;
@@ -864,6 +864,7 @@ namespace fatortak.Services.FinancialReportService
                             Expense = expense,
                             RunningBalance = runningBalance,
                             ProjectName = entry.JournalEntry.Project?.Name,
+                            AccountId = account.Id,
                             AccountName = account.Name
                         });
                     }
@@ -878,49 +879,97 @@ namespace fatortak.Services.FinancialReportService
                 // Consolidated mode: Aggregate all accounts into one pool (Daybook style)
                 if (result.Mode == "AllCashAndBank")
                 {
-                    result.OpeningBalance = result.Accounts.Sum(a => a.OpeningBalance);
+                    // Identify "Core" accounts (Actual Cash and Bank) vs "Periphery" (Custody/Advances)
+                    // We use the same criteria as accountsToProcess but exclude those that are definitely custody
+                    var coreAccountIds = accountsToProcess
+                        .Where(a => 
+                            (a.AccountType == AccountType.Cash || 
+                             a.AccountType == AccountType.Bank ||
+                             a.AccountCode.StartsWith("10") ||
+                             a.AccountCode.StartsWith("11") ||
+                             a.Name.ToLower().Contains("cash") || 
+                             a.Name.ToLower().Contains("bank") ||
+                             a.Name.Contains("صندوق")) &&
+                            !(a.AccountCode.StartsWith("15") || 
+                              a.Name.Contains("عهدة") || 
+                              a.Name.Contains("عهده"))
+                        )
+                        .Select(a => a.Id)
+                        .ToHashSet();
+
+                    // If NO accounts matched the strict core filter, fallback to all accounts to avoid zeroed report
+                    if (!coreAccountIds.Any())
+                    {
+                        coreAccountIds = accountsToProcess.Select(a => a.Id).ToHashSet();
+                    }
+
+                    // For the unified report, we only care about the opening balance of Cash & Bank core accounts
+                    // to avoid confusing the "Pool" total with custody/advance balances.
+                    result.OpeningBalance = result.Accounts
+                        .Where(a => coreAccountIds.Contains(a.AccountId))
+                        .Sum(a => a.OpeningBalance);
                     
-                    // Group all movements by Journal Entry to identify internal pool transfers
-                    var allLines = result.Accounts.SelectMany(a => a.Movements).ToList();
-                    var groupedByJe = allLines.GroupBy(m => m.JournalEntryId)
+                    // Group all movements by Journal Entry to intelligently pick representative lines
+                    var allLinesForGroups = result.Accounts.SelectMany(a => a.Movements).ToList();
+                    var groupedByJe = allLinesForGroups.GroupBy(m => m.JournalEntryId)
                         .OrderBy(g => g.First().Date)
                         .ThenBy(g => g.First().EntryNumber)
                         .ToList();
 
                     var consolidatedMovements = new List<MovementEntryDto>();
-                    decimal poolTotalIncome = 0;
-                    decimal poolTotalExpense = 0;
 
                     foreach (var group in groupedByJe)
                     {
-                        var jeId = group.Key;
-                        var movementLines = group.ToList();
-                        
-                        // Calculate net effect on the "Liquid Pool"
-                        var netDebit = movementLines.Sum(m => m.Debit);
-                        var netCredit = movementLines.Sum(m => m.Credit);
-                        var netFlow = netDebit - netCredit;
+                        var jeLines = group.ToList();
+                        var coreLines = jeLines.Where(l => coreAccountIds.Contains(l.AccountId)).ToList();
 
-                        // Grand totals ONLY count net movements in/out of the liquid pool
-                        if (netFlow > 0) poolTotalIncome += netFlow;
-                        else if (netFlow < 0) poolTotalExpense += Math.Abs(netFlow);
+                        if (coreLines.Any())
+                        {
+                            // If Core accounts (Cash/Bank) are involved, show them (all, in case of bank-to-bank)
+                            consolidatedMovements.AddRange(coreLines);
+                        }
+                        else
+                        {
+                            // If it's a movement only between non-core accounts (e.g. Custody-to-Custody)
+                            // or from Custody to Expense, we still show it but it won't affect pool total.
+                            var representative = jeLines.OrderByDescending(m => m.Debit + m.Credit).First();
+                            consolidatedMovements.Add(representative);
+                        }
+                    }
 
-                        // DEDUPLICATION: To show "انه طلع عهدة 1000 اتصرف منها 200 ورجع 800" as clear steps:
-                        // 1. Give Custody (Cash -> Custody): Shown once as "Out" from Cash (or simple transfer)
-                        // 2. Expense (Custody -> Expense): Shown once as "Out" from Custody
-                        // 3. Return (Custody -> Cash): Shown once as "In" to Cash
+                    // Sort final list by Date and EntryNumber
+                    consolidatedMovements = consolidatedMovements
+                        .OrderBy(m => m.Date)
+                        .ThenBy(m => m.EntryNumber)
+                        .ToList();
+
+                    decimal currentPoolRunningBalance = result.OpeningBalance ?? 0;
+                    decimal poolTotalIncome = 0;
+                    decimal poolTotalExpense = 0;
+
+                    foreach (var m in consolidatedMovements)
+                    {
+                        bool isCore = coreAccountIds.Contains(m.AccountId);
                         
-                        // If it's an internal transfer (e.g. JE-0008, JE-0010), we show it only ONCE.
-                        // We pick the "Main" line (usually the one from Cash/Bank, or just the first one)
-                        var representative = movementLines.OrderByDescending(m => m.Debit + m.Credit).First();
+                        // Keep original Debit/Credit/Income/Expense for display
+                        m.Income = m.Debit;
+                        m.Expense = m.Credit;
+
+                        if (isCore)
+                        {
+                            poolTotalIncome += m.Income;
+                            poolTotalExpense += m.Expense;
+                            currentPoolRunningBalance += (m.Income - m.Expense);
+                        }
                         
-                        consolidatedMovements.Add(representative);
+                        // All lines carry the unified running balance of the Core Pool
+                        m.RunningBalance = currentPoolRunningBalance;
                     }
 
                     result.Movements = consolidatedMovements;
                     result.TotalIncome = poolTotalIncome;
                     result.TotalExpense = poolTotalExpense;
-                    result.ClosingBalance = result.OpeningBalance + poolTotalIncome - poolTotalExpense;
+                    result.ClosingBalance = currentPoolRunningBalance;
                 }
                 else if (result.Accounts.Any())
                 {

@@ -254,6 +254,7 @@ namespace fatortak.Dtos.Reports
         public decimal Expense { get; set; }
         public decimal RunningBalance { get; set; }
         public string? ProjectName { get; set; }
+        public Guid AccountId { get; set; }
         public string? AccountName { get; set; }
         public string? ContraAccount { get; set; }
         public string? BranchName { get; set; }

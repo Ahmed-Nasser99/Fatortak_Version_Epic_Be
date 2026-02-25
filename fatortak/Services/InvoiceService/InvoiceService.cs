@@ -304,20 +304,20 @@ namespace fatortak.Services.InvoiceService
                     var project = await _context.Projects.FirstOrDefaultAsync(p => p.Id == dto.ProjectId && p.TenantId == TenantId);
                     if (project == null)
                         return ServiceResult<InvoiceDto>.Failure("Project not found.");
-                    
+
                     if (project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
                         return ServiceResult<InvoiceDto>.Failure($"Cannot create invoice for a {project.Status.ToString().ToLower()} project.");
-                    
+
                     // Sales invoice restriction: Only one per project
                     if (dto.InvoiceType?.ToLower() == InvoiceTypes.Sell.ToString().ToLower())
                     {
                         var existingSalesInvoice = await _context.Invoices
-                            .AnyAsync(i => i.ProjectId == dto.ProjectId && 
-                                           i.TenantId == TenantId && 
-                                           (i.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower() || 
-                                            i.InvoiceType.ToLower() == "sales" || 
+                            .AnyAsync(i => i.ProjectId == dto.ProjectId &&
+                                           i.TenantId == TenantId &&
+                                           (i.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower() ||
+                                            i.InvoiceType.ToLower() == "sales" ||
                                             i.InvoiceType.ToLower() == "sale"));
-                        
+
                         if (existingSalesInvoice)
                             return ServiceResult<InvoiceDto>.Failure("A sales invoice already exists for this project. Each project can only have one sales invoice.");
                     }
@@ -436,7 +436,7 @@ namespace fatortak.Services.InvoiceService
                             }
                         }
 
-                        await RegisterPaymentAsync(invoice, paymentAmount);
+                        await RegisterPaymentAsync(invoice, paymentAmount, null, null, dto.PaymentAccountId);
                     }
 
                     if (dto.NumberOfInstallments > 0)
@@ -767,24 +767,24 @@ namespace fatortak.Services.InvoiceService
                     var project = await _context.Projects.FirstOrDefaultAsync(p => p.Id == dto.ProjectId.Value && p.TenantId == TenantId);
                     if (project == null)
                         return ServiceResult<InvoiceDto>.Failure("Project not found.");
-                        
+
                     if (project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
                         return ServiceResult<InvoiceDto>.Failure($"Cannot link invoice to a {project.Status.ToString().ToLower()} project.");
 
                     // Sales invoice restriction: Only one per project
                     var targetInvoiceType = dto.InvoiceType ?? invoice.InvoiceType;
-                    if (targetInvoiceType?.ToLower() == InvoiceTypes.Sell.ToString().ToLower() || 
-                        targetInvoiceType?.ToLower() == "sales" || 
+                    if (targetInvoiceType?.ToLower() == InvoiceTypes.Sell.ToString().ToLower() ||
+                        targetInvoiceType?.ToLower() == "sales" ||
                         targetInvoiceType?.ToLower() == "sale")
                     {
                         var existingSalesInvoice = await _context.Invoices
-                            .AnyAsync(i => i.ProjectId == dto.ProjectId.Value && 
+                            .AnyAsync(i => i.ProjectId == dto.ProjectId.Value &&
                                            i.Id != invoiceId &&
-                                           i.TenantId == TenantId && 
-                                           (i.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower() || 
-                                            i.InvoiceType.ToLower() == "sales" || 
+                                           i.TenantId == TenantId &&
+                                           (i.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower() ||
+                                            i.InvoiceType.ToLower() == "sales" ||
                                             i.InvoiceType.ToLower() == "sale"));
-                        
+
                         if (existingSalesInvoice)
                             return ServiceResult<InvoiceDto>.Failure("A sales invoice already exists for this project. Each project can only have one sales invoice.");
                     }
@@ -1197,17 +1197,17 @@ namespace fatortak.Services.InvoiceService
                     // Determine the amount to register (if any)
                     decimal amountToPay = invoice.Total - (invoice.AmountPaid ?? 0);
 
-            // Account Balance Validation for Purchase Invoices
-            if (invoice.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower() && amountToPay > 0 && oldStatus != InvoiceStatus.Paid.ToString())
-            {
-                var balanceResult = await ValidatePurchaseInvoiceBalanceAsync(null, amountToPay);
-                if (!balanceResult.Success)
-                {
-                    return ServiceResult<bool>.Failure(balanceResult.ErrorMessage);
-                }
-            }
+                    // Account Balance Validation for Purchase Invoices
+                    if (invoice.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower() && amountToPay > 0 && oldStatus != InvoiceStatus.Paid.ToString())
+                    {
+                        var balanceResult = await ValidatePurchaseInvoiceBalanceAsync(null, amountToPay);
+                        if (!balanceResult.Success)
+                        {
+                            return ServiceResult<bool>.Failure(balanceResult.ErrorMessage);
+                        }
+                    }
 
-            // Ensure AmountPaid is set to Total when marked as Paid
+                    // Ensure AmountPaid is set to Total when marked as Paid
                     if (invoice.AmountPaid < invoice.Total)
                     {
                         invoice.AmountPaid = invoice.Total;
@@ -1663,18 +1663,18 @@ namespace fatortak.Services.InvoiceService
 
                 decimal remainingBalance = invoice.Total - (invoice.AmountPaid ?? 0);
                 if (dto.Amount > remainingBalance)
-            return ServiceResult<bool>.Failure($"Payment amount exceeds the remaining balance of {remainingBalance}.");
+                    return ServiceResult<bool>.Failure($"Payment amount exceeds the remaining balance of {remainingBalance}.");
 
-        // Account Balance Validation for Purchase Invoices
-if (invoice.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower())
-{
-    var balanceResult = await ValidatePurchaseInvoiceBalanceAsync(dto.PaymentAccountId, dto.Amount);
-    if (!balanceResult.Success)
-    {
-        return ServiceResult<bool>.Failure(balanceResult.ErrorMessage);
-    }
-}
-        // Update paid amount
+                // Account Balance Validation for Purchase Invoices
+                if (invoice.InvoiceType?.ToLower() == InvoiceTypes.Buy.ToString().ToLower())
+                {
+                    var balanceResult = await ValidatePurchaseInvoiceBalanceAsync(dto.PaymentAccountId, dto.Amount);
+                    if (!balanceResult.Success)
+                    {
+                        return ServiceResult<bool>.Failure(balanceResult.ErrorMessage);
+                    }
+                }
+                // Update paid amount
                 invoice.AmountPaid = (invoice.AmountPaid ?? 0) + dto.Amount;
                 invoice.UpdatedAt = DateTime.UtcNow;
 
