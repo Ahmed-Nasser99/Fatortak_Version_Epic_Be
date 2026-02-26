@@ -102,7 +102,7 @@ namespace fatortak.Services.AccountingPostingService
                     if (accountsReceivableAccount == null)
                     {
                         _logger.LogError("Accounts Receivable account not found for sales invoice posting");
-                        await transaction.RollbackAsync();
+                        if (transaction != null) await transaction.RollbackAsync();
                         return false;
                     }
                 }
@@ -115,7 +115,7 @@ namespace fatortak.Services.AccountingPostingService
                     if (accountsPayableAccount == null)
                     {
                         _logger.LogError("Accounts Payable account not found for purchase invoice posting");
-                        await transaction.RollbackAsync();
+                        if (transaction != null) await transaction.RollbackAsync();
                         return false;
                     }
                 }
@@ -127,7 +127,7 @@ namespace fatortak.Services.AccountingPostingService
                 if (isSalesInvoice && salesRevenueAccount == null)
                 {
                     _logger.LogError("Sales Revenue account not found for sales invoice posting");
-                    await transaction.RollbackAsync();
+                    if (transaction != null) await transaction.RollbackAsync();
                     return false;
                 }
 
@@ -201,7 +201,7 @@ namespace fatortak.Services.AccountingPostingService
                     if (expenseAccount == null)
                     {
                         _logger.LogError("Default expense account not found/could not be created for purchase invoice");
-                        await transaction.RollbackAsync();
+                        if (transaction != null) await transaction.RollbackAsync();
                         return false;
                     }
 
@@ -338,7 +338,7 @@ namespace fatortak.Services.AccountingPostingService
                 if (expenseAccount == null || cashAccount == null)
                 {
                     _logger.LogError("Required accounts not found for expense posting");
-                    await transaction.RollbackAsync();
+                    if (transaction != null) await transaction.RollbackAsync();
                     return false;
                 }
 
@@ -553,7 +553,7 @@ namespace fatortak.Services.AccountingPostingService
                     if (accountsReceivableAccount == null)
                     {
                         _logger.LogError("Accounts Receivable account not found for payment posting");
-                        await transaction.RollbackAsync();
+                        if (transaction != null) await transaction.RollbackAsync();
                         return false;
                     }
                 }
@@ -569,7 +569,7 @@ namespace fatortak.Services.AccountingPostingService
                     if (accountsPayableAccount == null)
                     {
                         _logger.LogError("Accounts Payable account not found for payment posting");
-                        await transaction.RollbackAsync();
+                        if (transaction != null) await transaction.RollbackAsync();
                         return false;
                     }
                 }
@@ -607,7 +607,7 @@ namespace fatortak.Services.AccountingPostingService
                 {
                     _logger.LogError("Required accounts not found for payment posting (Invoice: {InvoiceId}, Type: {Type})",
                         invoiceId, isSalesInvoice ? "Sales" : "Purchase");
-                    await transaction.RollbackAsync();
+                    if (transaction != null) await transaction.RollbackAsync();
                     return false;
                 }
 

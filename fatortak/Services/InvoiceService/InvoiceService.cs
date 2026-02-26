@@ -1153,7 +1153,76 @@ namespace fatortak.Services.InvoiceService
                 if (invoice.Status == InvoiceStatus.Cancelled.ToString())
                     return ServiceResult<bool>.Failure("Cannot delete a cancelled invoice.");
 
-                // Soft delete (or hard delete if preferred)
+                // 1. Reverse Inventory if not already reversed (Draft/Cancelled)
+                var skipInventoryStates = new[] { InvoiceStatus.Draft.ToString(), InvoiceStatus.Cancelled.ToString() };
+                if (!skipInventoryStates.Contains(invoice.Status))
+                {
+                    // Reload with items for inventory reversal
+                    var invoiceWithItems = await _context.Invoices
+                        .Include(i => i.InvoiceItems)
+                        .ThenInclude(ii => ii.Item)
+                        .FirstOrDefaultAsync(i => i.Id == invoiceId);
+
+                    if (invoiceWithItems != null)
+                    {
+                        if (invoiceWithItems.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower() ||
+                            invoiceWithItems.InvoiceType.ToLower() == "sales" ||
+                            invoiceWithItems.InvoiceType.ToLower() == "sale")
+                        {
+                            foreach (var item in invoiceWithItems.InvoiceItems) if (item.Item != null) item.Item.Quantity += item.Quantity;
+                        }
+                        else
+                        {
+                            foreach (var item in invoiceWithItems.InvoiceItems) if (item.Item != null) item.Item.Quantity -= item.Quantity;
+                        }
+                    }
+                }
+
+                // 2. Reverse Accounting Entries
+                // A. Main Invoice Entry
+                var mainEntryTypes = new[] { JournalEntryReferenceType.Invoice, JournalEntryReferenceType.PurchaseInvoice };
+                var mainEntries = await _context.JournalEntries
+                    .Where(je => je.ReferenceId == invoiceId &&
+                                 mainEntryTypes.Contains(je.ReferenceType) &&
+                                 je.TenantId == TenantId &&
+                                 je.IsPosted &&
+                                 !je.ReversingEntryId.HasValue)
+                    .ToListAsync();
+
+                foreach (var entry in mainEntries)
+                {
+                    await _accountingService.ReverseJournalEntryAsync(entry.Id);
+                }
+
+                // B. Payment Entries
+                // Find all transactions related to this invoice
+                var transactions = await _context.Transactions
+                    .Where(t => t.ReferenceId == invoiceId.ToString() && t.ReferenceType == "Invoice" && t.TenantId == TenantId)
+                    .ToListAsync();
+
+                foreach (var trans in transactions)
+                {
+                    // Find journal entry for this transaction
+                    var paymentEntry = await _context.JournalEntries
+                        .FirstOrDefaultAsync(je => je.ReferenceId == trans.Id &&
+                                                 je.ReferenceType == JournalEntryReferenceType.Payment &&
+                                                 je.TenantId == TenantId &&
+                                                 je.IsPosted &&
+                                                 !je.ReversingEntryId.HasValue);
+
+                    if (paymentEntry != null)
+                    {
+                        await _accountingService.ReverseJournalEntryAsync(paymentEntry.Id);
+                    }
+                }
+
+                // Remove transactions and installments
+                _context.Transactions.RemoveRange(transactions);
+                
+                var installments = await _context.Installments.Where(i => i.InvoiceId == invoiceId).ToListAsync();
+                _context.Installments.RemoveRange(installments);
+
+                // Finally hard delete the invoice (or soft delete if preferred, but existing code uses Remove)
                 _context.Invoices.Remove(invoice);
                 await _context.SaveChangesAsync();
 
@@ -1164,7 +1233,7 @@ namespace fatortak.Services.InvoiceService
             {
                 await transaction.RollbackAsync();
                 _logger.LogError(ex, $"Error deleting invoice with ID: {invoiceId}");
-                return ServiceResult<bool>.Failure("Failed to delete invoice");
+                return ServiceResult<bool>.Failure($"Failed to delete invoice: {ex.Message}");
             }
         }
         public async Task<ServiceResult<bool>> UpdateInvoiceStatusAsync(Guid invoiceId, string status)
@@ -1188,6 +1257,13 @@ namespace fatortak.Services.InvoiceService
 
                 if (oldStatus == InvoiceStatus.Paid.ToString() && status != InvoiceStatus.Cancelled.ToString())
                     return ServiceResult<bool>.Failure("Can only cancel a paid invoice");
+
+                // Partially paid invoice restriction
+                var partialStates = new[] { InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.PartPaid.ToString() };
+                if (partialStates.Contains(oldStatus) && status != InvoiceStatus.Cancelled.ToString())
+                {
+                    return ServiceResult<bool>.Failure("Partially paid invoices can only be cancelled.");
+                }
 
                 invoice.Status = status;
                 invoice.UpdatedAt = DateTime.UtcNow;
@@ -1266,27 +1342,41 @@ namespace fatortak.Services.InvoiceService
                         // Handle Financial Reversal (Accounting)
                         try
                         {
-                            // Check if invoice was posted
-                            if (await _accountingPostingService.IsInvoicePostedAsync(invoiceId))
-                            {
-                                // Find the journal entry associated with this invoice
-                                var journalEntry = await _context.JournalEntries
-                                    .FirstOrDefaultAsync(je => je.ReferenceId == invoiceId &&
-                                                             je.ReferenceType == JournalEntryReferenceType.Invoice &&
-                                                             je.TenantId == TenantId);
+                            // A. Main Invoice Entry
+                            var mainEntryTypes = new[] { JournalEntryReferenceType.Invoice, JournalEntryReferenceType.PurchaseInvoice };
+                            var mainEntries = await _context.JournalEntries
+                                .Where(je => je.ReferenceId == invoiceId &&
+                                               mainEntryTypes.Contains(je.ReferenceType) &&
+                                               je.TenantId == TenantId &&
+                                               je.IsPosted &&
+                                               !je.ReversingEntryId.HasValue)
+                                .ToListAsync();
 
-                                if (journalEntry != null)
+                            foreach (var entry in mainEntries)
+                            {
+                                await _accountingService.ReverseJournalEntryAsync(entry.Id);
+                            }
+
+                            // B. Payment Entries
+                            // Find all transactions related to this invoice
+                            var transactions = await _context.Transactions
+                                .Where(t => t.ReferenceId == invoiceId.ToString() && t.ReferenceType == "Invoice" && t.TenantId == TenantId)
+                                .ToListAsync();
+
+                            foreach (var trans in transactions)
+                            {
+                                // Find journal entry for this transaction (referenceId can be transactionId OR invoiceId)
+                                var paymentEntries = await _context.JournalEntries
+                                    .Where(je => (je.ReferenceId == trans.Id || je.ReferenceId == invoiceId) &&
+                                                   je.ReferenceType == JournalEntryReferenceType.Payment &&
+                                                   je.TenantId == TenantId &&
+                                                   je.IsPosted &&
+                                                   !je.ReversingEntryId.HasValue)
+                                    .ToListAsync();
+
+                                foreach (var pEntry in paymentEntries)
                                 {
-                                    // Reverse the journal entry
-                                    var reversalResult = await _accountingService.ReverseJournalEntryAsync(journalEntry.Id);
-                                    if (reversalResult.Success)
-                                    {
-                                        _logger.LogInformation("Successfully reversed journal entry {JournalEntryId} for cancelled invoice {InvoiceId}", journalEntry.Id, invoiceId);
-                                    }
-                                    else
-                                    {
-                                        _logger.LogWarning("Failed to reverse journal entry {JournalEntryId} for cancelled invoice {InvoiceId}: {ErrorMessage}", journalEntry.Id, invoiceId, reversalResult.ErrorMessage);
-                                    }
+                                    await _accountingService.ReverseJournalEntryAsync(pEntry.Id);
                                 }
                             }
                         }

@@ -465,7 +465,8 @@ namespace fatortak.Services.AccountingService
 
         public async Task<ServiceResult<JournalEntryDto>> CreateManualJournalEntryAsync(JournalEntryCreateDto dto)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var existingTransaction = _context.Database.CurrentTransaction;
+            var transaction = existingTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
             try
             {
                 // Validate lines
@@ -563,7 +564,7 @@ namespace fatortak.Services.AccountingService
                 }
 
                 await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                if (transaction != null) await transaction.CommitAsync();
 
                 // Load and return
                 var result = await GetJournalEntryAsync(journalEntry.Id);
@@ -571,7 +572,7 @@ namespace fatortak.Services.AccountingService
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                if (transaction != null) await transaction.RollbackAsync();
                 _logger.LogError(ex, "Error creating manual journal entry");
                 return ServiceResult<JournalEntryDto>.Failure($"Error creating journal entry: {ex.Message}");
             }
@@ -718,7 +719,8 @@ namespace fatortak.Services.AccountingService
 
         public async Task<ServiceResult<bool>> ReverseJournalEntryAsync(Guid journalEntryId)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            var existingTransaction = _context.Database.CurrentTransaction;
+            var transaction = existingTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
             try
             {
                 var originalEntry = await _context.JournalEntries
@@ -785,13 +787,13 @@ namespace fatortak.Services.AccountingService
                 originalEntry.ReversingEntryId = reversingEntry.Id;
 
                 await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                if (transaction != null) await transaction.CommitAsync();
 
                 return ServiceResult<bool>.SuccessResult(true);
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                if (transaction != null) await transaction.RollbackAsync();
                 _logger.LogError(ex, "Error reversing journal entry");
                 return ServiceResult<bool>.Failure($"Error reversing journal entry: {ex.Message}");
             }
