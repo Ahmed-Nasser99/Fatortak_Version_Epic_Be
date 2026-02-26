@@ -43,6 +43,7 @@ namespace fatortak.Services.ChequeService
                     .Include(c => c.Invoice)
                         .ThenInclude(i => i.Project)
                     .Include(c => c.PaymentAccount)
+                    .Include(c => c.Transaction)
                     .Where(c => c.TenantId == TenantId)
                     .AsQueryable();
 
@@ -69,7 +70,8 @@ namespace fatortak.Services.ChequeService
                         ProjectName = c.Invoice.Project != null ? c.Invoice.Project.Name : null,
                         PaymentAccountId = c.PaymentAccountId,
                         PaymentAccountName = c.PaymentAccount != null ? c.PaymentAccount.Name : null,
-                        CreatedAt = c.CreatedAt
+                        CreatedAt = c.CreatedAt,
+                        AttachmentUrl = c.Transaction != null ? c.Transaction.AttachmentUrl : null
                     })
                     .ToListAsync();
 

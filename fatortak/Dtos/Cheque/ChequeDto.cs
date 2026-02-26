@@ -14,5 +14,6 @@ namespace fatortak.Dtos.Cheque
         public Guid? PaymentAccountId { get; set; }
         public string? PaymentAccountName { get; set; }
         public DateTime CreatedAt { get; set; }
+        public string? AttachmentUrl { get; set; }
     }
 }

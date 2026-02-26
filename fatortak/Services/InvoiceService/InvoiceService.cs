@@ -333,6 +333,11 @@ namespace fatortak.Services.InvoiceService
                     dto.Installments = ParseJsonFromForm<InstallmentCreateDto>("installments");
                 }
 
+                if (dto.File != null && dto.File.Length > 0)
+                {
+                    dto.AttachmentUrl = await SaveFile(dto.File, "invoices");
+                }
+
 
                 // Create invoice - ALWAYS start as DRAFT
                 var invoice = new Invoice

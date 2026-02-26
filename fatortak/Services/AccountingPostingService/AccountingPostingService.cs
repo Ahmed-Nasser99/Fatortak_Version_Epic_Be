@@ -436,6 +436,15 @@ namespace fatortak.Services.AccountingPostingService
                     return false;
                 }
 
+                // Load associated transaction to map AttachmentUrl
+                Transaction? existingTransactionRecord = null;
+                if (transactionId.HasValue)
+                {
+                    existingTransactionRecord = await _context.Transactions
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(t => t.Id == transactionId.Value && t.TenantId == TenantId);
+                }
+
                 // Determine if this is a sales or purchase invoice payment
                 var invoiceTypeStr = invoice.InvoiceType?.ToLower() ?? "";
                 bool isSalesInvoice = invoiceTypeStr == InvoiceTypes.Sell.ToString().ToLower() ||
@@ -463,7 +472,8 @@ namespace fatortak.Services.AccountingPostingService
                         PostedAt = DateTime.UtcNow,
                         PostedBy = CurrentUserId,
                         CreatedAt = DateTime.UtcNow,
-                        CreatedBy = CurrentUserId
+                        CreatedBy = CurrentUserId,
+                        AttachmentUrl = existingTransactionRecord?.AttachmentUrl
                     };
                     _context.JournalEntries.Add(journalEntrySpecial);
 
@@ -618,7 +628,8 @@ namespace fatortak.Services.AccountingPostingService
                     PostedAt = DateTime.UtcNow,
                     PostedBy = CurrentUserId,
                     CreatedAt = DateTime.UtcNow,
-                    CreatedBy = CurrentUserId
+                    CreatedBy = CurrentUserId,
+                    AttachmentUrl = existingTransactionRecord?.AttachmentUrl
                 };
 
                 _context.JournalEntries.Add(journalEntry);
