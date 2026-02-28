@@ -593,7 +593,17 @@ namespace fatortak.Services.AccountingService
                     return ServiceResult<JournalEntryDto>.Failure("Journal entry not found");
                 }
 
-                return ServiceResult<JournalEntryDto>.SuccessResult(MapToDto(journalEntry));
+                var dto = MapToDto(journalEntry);
+                if (dto.PaymentMethod == "Cheque" && dto.ReferenceId.HasValue)
+                {
+                    var cheque = await _context.Cheques.FirstOrDefaultAsync(c => (c.Id == dto.ReferenceId.Value || c.TransactionId == dto.ReferenceId.Value) && c.TenantId == TenantId);
+                    if (cheque != null)
+                    {
+                        dto.Status = cheque.Status;
+                    }
+                }
+
+                return ServiceResult<JournalEntryDto>.SuccessResult(dto);
             }
             catch (Exception ex)
             {
@@ -663,6 +673,31 @@ namespace fatortak.Services.AccountingService
                     .ToListAsync();
 
                 var journalEntryDtos = journalEntries.Select(MapToDto).ToList();
+
+                // Fetch cheques for any journal entry that represents a Cheque payment
+                var chequeRefIds = journalEntryDtos
+                    .Where(je => je.PaymentMethod == "Cheque" && je.ReferenceId.HasValue)
+                    .Select(je => je.ReferenceId.Value)
+                    .ToList();
+
+                if (chequeRefIds.Any())
+                {
+                    var cheques = await _context.Cheques
+                        .Where(c => chequeRefIds.Contains(c.Id) || (c.TransactionId.HasValue && chequeRefIds.Contains(c.TransactionId.Value)))
+                        .ToListAsync();
+
+                    foreach (var dto in journalEntryDtos)
+                    {
+                        if (dto.PaymentMethod == "Cheque" && dto.ReferenceId.HasValue)
+                        {
+                            var cheque = cheques.FirstOrDefault(c => c.Id == dto.ReferenceId.Value || c.TransactionId == dto.ReferenceId.Value);
+                            if (cheque != null)
+                            {
+                                dto.Status = cheque.Status;
+                            }
+                        }
+                    }
+                }
 
                 return ServiceResult<PagedResponseDto<JournalEntryDto>>.SuccessResult(new PagedResponseDto<JournalEntryDto>
                 {
@@ -1217,7 +1252,7 @@ namespace fatortak.Services.AccountingService
 
         private JournalEntryDto MapToDto(JournalEntry journalEntry)
         {
-            return new JournalEntryDto
+            var dto = new JournalEntryDto
             {
                 Id = journalEntry.Id,
                 TenantId = journalEntry.TenantId,
@@ -1241,6 +1276,42 @@ namespace fatortak.Services.AccountingService
                 TotalCredit = journalEntry.TotalCredit,
                 AttachmentUrl = journalEntry.AttachmentUrl
             };
+
+            if (journalEntry.ReferenceType == JournalEntryReferenceType.Payment)
+            {
+                if (journalEntry.Description != null && journalEntry.Description.Contains("Bounced"))
+                {
+                    dto.PaymentMethod = "Cheque";
+                    dto.Status = "Bounced";
+                }
+                else if (journalEntry.Description != null && journalEntry.Description.Contains("Deposit"))
+                {
+                    dto.PaymentMethod = "Cheque";
+                    dto.Status = "Deposited";
+                }
+                else if (dto.Lines.Any(l => !string.IsNullOrEmpty(l.AccountName) && l.AccountName.Contains("Cheques Under Collection", StringComparison.OrdinalIgnoreCase)))
+                {
+                    dto.PaymentMethod = "Cheque";
+                    dto.Status = "UnderCollection";
+                }
+                else if (dto.Lines.Any(l => !string.IsNullOrEmpty(l.AccountName) && l.AccountName.Contains("Bank", StringComparison.OrdinalIgnoreCase)))
+                {
+                    dto.PaymentMethod = "Bank Transfer";
+                    dto.Status = "Completed";
+                }
+                else if (dto.Lines.Any(l => !string.IsNullOrEmpty(l.AccountName) && l.AccountName.Contains("Cash", StringComparison.OrdinalIgnoreCase)))
+                {
+                    dto.PaymentMethod = "Cash";
+                    dto.Status = "Completed";
+                }
+                else
+                {
+                    dto.PaymentMethod = "Other";
+                    dto.Status = "Completed";
+                }
+            }
+
+            return dto;
         }
 
         private JournalEntryLineDto MapToDto(JournalEntryLine line)

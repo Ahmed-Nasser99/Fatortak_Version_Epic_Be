@@ -28,6 +28,8 @@ namespace fatortak.Dtos.Accounting
         public decimal TotalDebit { get; set; }
         public decimal TotalCredit { get; set; }
         public string? AttachmentUrl { get; set; }
+        public string? PaymentMethod { get; set; }
+        public string? Status { get; set; }
     }
 }
 

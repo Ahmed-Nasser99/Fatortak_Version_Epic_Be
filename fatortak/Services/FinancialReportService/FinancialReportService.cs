@@ -478,8 +478,17 @@ namespace fatortak.Services.FinancialReportService
 
                 // Get all journal entries linked to this customer's invoices (for payments)
                 var invoiceIds = invoices.Select(i => i.Id).ToList();
+                
+                // Get all bounced cheques to exclude their original payments and bouncing entries
+                var bouncedCheques = await _context.Cheques
+                    .Where(c => c.TenantId == TenantId && invoiceIds.Contains(c.InvoiceId) && c.Status == "Bounced")
+                    .ToListAsync();
+                var bouncedChequeIds = bouncedCheques.Select(c => c.Id).ToList();
+                var bouncedTransactionIds = bouncedCheques.Where(c => c.TransactionId.HasValue).Select(c => c.TransactionId!.Value).ToList();
+
                 var payments = await _context.JournalEntries
                     .Include(je => je.Lines)
+                        .ThenInclude(l => l.Account)
                     .Where(je => je.TenantId == TenantId && je.IsPosted && je.ReferenceType == JournalEntryReferenceType.Payment && je.Date >= fromDate && je.Date <= toDate)
                     .ToListAsync();
 
@@ -487,19 +496,42 @@ namespace fatortak.Services.FinancialReportService
                 // For now, let's look for payments that mention the customer in description or link to their invoices.
                 foreach (var je in payments)
                 {
+                    // Exclude bounced cheques entries (both original payment and bounce reversal)
+                    if (je.ReferenceId.HasValue && (bouncedChequeIds.Contains(je.ReferenceId.Value) || bouncedTransactionIds.Contains(je.ReferenceId.Value)))
+                    {
+                        continue;
+                    }
+
                     if (je.Description != null && (je.Description.Contains(customer.Name) || invoiceIds.Any(id => je.Description.Contains(id.ToString()))))
                     {
-                        var arLine = je.Lines.FirstOrDefault(l => l.Credit > 0); // AR reduction is a credit
-                        if (arLine != null)
+                        var arLine = je.Lines.FirstOrDefault(l => l.Account != null && (l.Account.AccountCode.StartsWith("1200") || l.Account.AccountCode.StartsWith("1210")));
+                        
+                        if (arLine != null && (arLine.Credit > 0 || arLine.Debit > 0))
                         {
                             entries.Add(new StatementEntryDto
                             {
                                 Date = je.Date,
                                 Description = je.Description,
                                 ReferenceNumber = je.EntryNumber,
-                                Debit = 0,
+                                Debit = arLine.Debit,
                                 Credit = arLine.Credit
                             });
+                        }
+                        else
+                        {
+                            // Fallback to original logic if account codes aren't matching
+                            var fallbackLine = je.Lines.FirstOrDefault(l => l.Credit > 0);
+                            if (fallbackLine != null)
+                            {
+                                entries.Add(new StatementEntryDto
+                                {
+                                    Date = je.Date,
+                                    Description = je.Description,
+                                    ReferenceNumber = je.EntryNumber,
+                                    Debit = 0,
+                                    Credit = fallbackLine.Credit
+                                });
+                            }
                         }
                     }
                 }

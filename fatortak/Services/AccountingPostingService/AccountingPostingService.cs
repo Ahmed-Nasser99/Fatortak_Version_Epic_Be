@@ -413,15 +413,31 @@ namespace fatortak.Services.AccountingPostingService
             {
                 // Check if already posted
                 var referenceId = transactionId ?? invoiceId;
-                var existingEntry = await _context.JournalEntries
-                    .FirstOrDefaultAsync(je => je.TenantId == TenantId &&
-                                               je.ReferenceType == JournalEntryReferenceType.Payment &&
-                                               je.ReferenceId == referenceId &&
-                                               je.IsPosted);
+                IQueryable<JournalEntry> query = _context.JournalEntries
+                    .Where(je => je.TenantId == TenantId &&
+                                 je.ReferenceType == JournalEntryReferenceType.Payment &&
+                                 je.ReferenceId == referenceId &&
+                                 je.IsPosted);
+
+                if (paymentMethod == "Cheque_Deposited")
+                {
+                    query = query.Where(je => je.Description != null && je.Description.Contains("Cheque Deposit"));
+                }
+                else if (paymentMethod == "Cheque_Bounced")
+                {
+                    query = query.Where(je => je.Description != null && je.Description.Contains("Cheque Bounced"));
+                }
+                else if (paymentMethod == "Cheque" || paymentMethod == "Cash" || paymentMethod == "Bank Transfer" || string.IsNullOrEmpty(paymentMethod))
+                {
+                    // Ensure we don't block based on subsequent lifecycle events
+                    query = query.Where(je => je.Description == null || (!je.Description.Contains("Cheque Deposit") && !je.Description.Contains("Cheque Bounced")));
+                }
+
+                var existingEntry = await query.FirstOrDefaultAsync();
 
                 if (existingEntry != null)
                 {
-                    _logger.LogWarning("Payment (Ref: {ReferenceId}) for invoice {InvoiceId} has already been posted", referenceId, invoiceId);
+                    _logger.LogWarning("Payment (Ref: {ReferenceId}, Method: {Method}) for invoice {InvoiceId} has already been posted", referenceId, paymentMethod, invoiceId);
                     return false;
                 }
 
