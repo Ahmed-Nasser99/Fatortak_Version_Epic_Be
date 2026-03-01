@@ -30,6 +30,7 @@ namespace fatortak.Dtos
     public class ProjectLineDto
     {
         public Guid? Id { get; set; }
+        public string? SectionName { get; set; }
         [Required]
         public string Description { get; set; }
         [Range(0.01, double.MaxValue, ErrorMessage = "Quantity must be greater than 0")]

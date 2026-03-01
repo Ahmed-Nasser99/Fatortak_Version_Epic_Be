@@ -294,6 +294,7 @@ namespace fatortak.Services.ProjectService
                         Unit = lineDto.Unit,
                         UnitPrice = lineDto.UnitPrice,
                         LineTotal = lineTotal,
+                        SectionName = lineDto.SectionName,
                         CreatedAt = DateTime.UtcNow
                     };
                     await _context.ProjectLines.AddAsync(projectLine);
@@ -519,7 +520,8 @@ namespace fatortak.Services.ProjectService
                     Quantity = l.Quantity,
                     Unit = l.Unit,
                     UnitPrice = l.UnitPrice,
-                    LineTotal = l.LineTotal
+                    LineTotal = l.LineTotal,
+                    SectionName = l.SectionName
                 }).ToList() ?? new List<ProjectLineDto>()
             };
         }

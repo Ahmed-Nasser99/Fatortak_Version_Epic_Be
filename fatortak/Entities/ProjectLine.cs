@@ -13,6 +13,8 @@ namespace fatortak.Entities
         public Guid ProjectId { get; set; }
         public Project Project { get; set; }
 
+        public string? SectionName { get; set; }
+
         [Required]
         public string Description { get; set; }
 
