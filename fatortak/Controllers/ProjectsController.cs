@@ -69,6 +69,14 @@ namespace fatortak.Controllers
             return Ok(result);
         }
 
+        [HttpPost("{projectId}/update-with-contract")]
+        public async Task<ActionResult<ServiceResult<ProjectDto>>> UpdateProjectWithContract(Guid projectId, [FromBody] UpdateProjectWithContractCommand command)
+        {
+            var result = await _projectService.UpdateProjectWithContractAsync(projectId, command);
+            if (!result.Success) return BadRequest(result);
+            return Ok(result);
+        }
+
         [HttpPost("{projectId}/status")]
         public async Task<ActionResult<ServiceResult<ProjectDto>>> UpdateProjectStatus(Guid projectId, [FromBody] UpdateProjectStatusDto dto)
         {

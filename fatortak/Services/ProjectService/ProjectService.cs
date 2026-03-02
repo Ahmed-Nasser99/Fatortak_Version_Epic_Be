@@ -198,12 +198,9 @@ namespace fatortak.Services.ProjectService
 
                 ProjectStatus oldStatus = project.Status;
 
-                // Edits are blocked for Completed, Cancelled, and Active projects
+                // Edits are blocked for Completed and Cancelled projects
                 if (oldStatus == ProjectStatus.Completed || oldStatus == ProjectStatus.Cancelled)
                     return ServiceResult<ProjectDto>.Failure($"Cannot edit a {oldStatus.ToString().ToLower()} project.");
-
-                if (oldStatus == ProjectStatus.Active)
-                    return ServiceResult<ProjectDto>.Failure("Cannot edit an active project details. Please use the status update if you need to change its state.");
 
                 if (dto.Status == ProjectStatus.Completed)
                 {
@@ -323,6 +320,161 @@ namespace fatortak.Services.ProjectService
                 await transaction.RollbackAsync();
                 _logger.LogError(ex, "Error creating project with contract");
                 return ServiceResult<ProjectDto>.Failure("Failed to create project with contract setup");
+            }
+        }
+
+        public async Task<ServiceResult<ProjectDto>> UpdateProjectWithContractAsync(Guid projectId, UpdateProjectWithContractCommand command)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var project = await _context.Projects
+                    .Include(p => p.ProjectLines)
+                    .FirstOrDefaultAsync(p => p.Id == projectId && p.TenantId == TenantId);
+
+                if (project == null)
+                    return ServiceResult<ProjectDto>.Failure("Project not found");
+
+                if (project.Status == ProjectStatus.Completed || project.Status == ProjectStatus.Cancelled)
+                    return ServiceResult<ProjectDto>.Failure($"Cannot edit a {project.Status.ToString().ToLower()} project.");
+
+                if (command.Lines == null || !command.Lines.Any())
+                    return ServiceResult<ProjectDto>.Failure("At least one contract line is required");
+
+                // Calculate totals
+                decimal newContractValue = 0;
+                foreach (var line in command.Lines)
+                {
+                    if (line.Quantity <= 0 || line.UnitPrice <= 0)
+                        return ServiceResult<ProjectDto>.Failure("Quantity and Unit Price must be greater than 0");
+
+                    newContractValue += Math.Round(line.Quantity * line.UnitPrice, 2);
+                }
+                
+                decimal discountAmt = command.Discount ?? 0;
+
+                // Validate financial constraints: Value shouldn't go below what's already invoiced or collected
+                var totalInvoiced = await _context.Invoices
+                    .Where(i => i.ProjectId == project.Id && i.TenantId == TenantId && (i.InvoiceType == InvoiceTypes.Sell.ToString() || i.InvoiceType.ToLower() == "sales" || i.InvoiceType.ToLower() == "sale"))
+                    .SumAsync(i => (decimal?)i.Total) ?? 0;
+
+                var totalCollected = await _context.JournalEntryLines
+                    .Where(l => l.JournalEntry.ProjectId == project.Id &&
+                                l.JournalEntry.TenantId == TenantId &&
+                                l.JournalEntry.ReferenceType == JournalEntryReferenceType.Payment &&
+                                (l.Account.AccountCode.StartsWith("1200") || l.Account.AccountCode.StartsWith("1210")))
+                    .SumAsync(l => (decimal?)l.Credit - (decimal?)l.Debit) ?? 0;
+
+                decimal netNewValue = newContractValue - discountAmt;
+
+                if (netNewValue < totalCollected)
+                    return ServiceResult<ProjectDto>.Failure($"Cannot reduce project value ({netNewValue:N2}) below total collected amount ({totalCollected:N2}).");
+
+                // Unlink and remove old lines
+                if (project.ProjectLines != null && project.ProjectLines.Any())
+                {
+                    _context.ProjectLines.RemoveRange(project.ProjectLines);
+                }
+
+                // Update Project Properties
+                project.Name = command.ProjectName;
+                project.CustomerId = command.ClientId;
+                project.ContractValue = newContractValue;
+                project.PaymentTerms = command.PaymentTerms;
+                project.Notes = command.Notes;
+                project.Discount = discountAmt;
+                project.UpdatedAt = DateTime.UtcNow;
+
+                // Create new ProjectLines
+                foreach (var lineDto in command.Lines)
+                {
+                    var lineTotal = Math.Round(lineDto.Quantity * lineDto.UnitPrice, 2);
+                    var projectLine = new ProjectLine
+                    {
+                        TenantId = TenantId,
+                        ProjectId = project.Id,
+                        Description = lineDto.Description,
+                        Quantity = lineDto.Quantity,
+                        Unit = lineDto.Unit,
+                        UnitPrice = lineDto.UnitPrice,
+                        LineTotal = lineTotal,
+                        SectionName = lineDto.SectionName,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    await _context.ProjectLines.AddAsync(projectLine);
+                }
+
+
+                // --------- SYNC RELATED INVOICE ---------
+                var relatedInvoice = await _context.Invoices
+                    .Include(i => i.InvoiceItems)
+                    .FirstOrDefaultAsync(i => i.ProjectId == project.Id && i.TenantId == TenantId && 
+                                              (i.InvoiceType.ToLower() == InvoiceTypes.Sell.ToString().ToLower() || 
+                                               i.InvoiceType.ToLower() == "sales" || 
+                                               i.InvoiceType.ToLower() == "sale"));
+
+                if (relatedInvoice != null)
+                {
+                    // Update Invoice header
+                    relatedInvoice.Subtotal = newContractValue;
+                    relatedInvoice.TotalDiscount = discountAmt;
+                    relatedInvoice.VatAmount = 0; // Reset VAT since all new project items have VatRate = 0
+                    relatedInvoice.Total = newContractValue - discountAmt + relatedInvoice.Benefits.GetValueOrDefault();
+                    relatedInvoice.Notes = command.Notes;
+                    relatedInvoice.Terms = command.PaymentTerms;
+                    relatedInvoice.UpdatedAt = DateTime.UtcNow;
+
+                    // Remove old invoice items
+                    if (relatedInvoice.InvoiceItems != null && relatedInvoice.InvoiceItems.Any())
+                    {
+                        _context.InvoiceItems.RemoveRange(relatedInvoice.InvoiceItems);
+                    }
+
+                    // Create new invoice items from project lines
+                    foreach (var lineDto in command.Lines)
+                    {
+                        var lineTotal = Math.Round(lineDto.Quantity * lineDto.UnitPrice, 2);
+                        var invoiceItem = new InvoiceItem
+                        {
+                            TenantId = TenantId,
+                            InvoiceId = relatedInvoice.Id,
+                            Description = lineDto.Description,
+                            Quantity = (int)lineDto.Quantity, // Cast to match InvoiceItem which uses int typically, though ideally it should be decimal
+                            UnitPrice = lineDto.UnitPrice,
+                            VatRate = 0, // Default to 0, user can edit invoice later if needed
+                            Discount = 0,
+                            LineTotal = lineTotal
+                        };
+                        _context.InvoiceItems.Add(invoiceItem);
+                    }
+
+                    // We need to re-post to accounting if the invoice was already posted
+                    // To do this cleanly, we'll let it save first, then post
+                }
+                // ----------------------------------------
+
+                await _context.SaveChangesAsync();
+                
+                // If there's a related invoice, we sync to accounting
+                if (relatedInvoice != null)
+                {
+                    var activeStatusUpdate = new[] { InvoiceStatus.Pending.ToString(), InvoiceStatus.PartialPaid.ToString(), InvoiceStatus.PartPaid.ToString(), InvoiceStatus.AwaitingChequeClearance.ToString(), InvoiceStatus.Paid.ToString(), InvoiceStatus.Overdue.ToString(), InvoiceStatus.Posted.ToString() };
+                    if (activeStatusUpdate.Contains(relatedInvoice.Status, StringComparer.OrdinalIgnoreCase))
+                    {
+                        await _accountingPostingService.PostInvoiceAsync(relatedInvoice.Id);
+                    }
+                }
+
+                await transaction.CommitAsync();
+
+                project.Customer = await _context.Customers.FindAsync(command.ClientId);
+                return ServiceResult<ProjectDto>.SuccessResult(await MapToDtoWithFinancialsAsync(project));
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Error updating project with contract for Project {ProjectId}", projectId);
+                return ServiceResult<ProjectDto>.Failure("Failed to update project with contract setup");
             }
         }
 
