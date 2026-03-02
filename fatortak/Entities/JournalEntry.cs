@@ -87,6 +87,11 @@ namespace fatortak.Entities
         /// Timestamp when the entry was last updated
         /// </summary>
         public DateTime? UpdatedAt { get; set; }
+
+        /// <summary>
+        /// User who last updated the entry
+        /// </summary>
+        public Guid? UpdatedBy { get; set; }
         public string? AttachmentUrl { get; set; }
 
         /// <summary>

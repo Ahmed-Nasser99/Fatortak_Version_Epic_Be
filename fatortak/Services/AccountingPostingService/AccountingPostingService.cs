@@ -67,16 +67,49 @@ namespace fatortak.Services.AccountingPostingService
                 var expectedRefType = isSalesInvoice ? JournalEntryReferenceType.Invoice : JournalEntryReferenceType.PurchaseInvoice;
 
                 // Check if already posted
-                var existingEntry = await _context.JournalEntries
+                var journalEntry = await _context.JournalEntries
+                    .Include(je => je.Lines)
                     .FirstOrDefaultAsync(je => je.TenantId == TenantId &&
                                                je.ReferenceType == expectedRefType &&
-                                               je.ReferenceId == invoiceId &&
-                                               je.IsPosted);
+                                               je.ReferenceId == invoiceId);
 
-                if (existingEntry != null)
+                if (journalEntry != null)
                 {
-                    _logger.LogWarning("Invoice {InvoiceId} has already been posted as {RefType}", invoiceId, expectedRefType);
-                    return false;
+                    _logger.LogInformation("Updating existing journal entry for Invoice {InvoiceId}", invoiceId);
+                    
+                    // Clear existing lines to recreate them
+                    _context.JournalEntryLines.RemoveRange(journalEntry.Lines);
+                    
+                    // Update header fields
+                    journalEntry.Date = invoice.IssueDate.Date;
+                    journalEntry.ProjectId = invoice.ProjectId;
+                    journalEntry.Description = $"Invoice {invoice.InvoiceNumber} - {invoice.Customer?.Name ?? "Customer"} (Updated)";
+                    journalEntry.UpdatedAt = DateTime.UtcNow;
+                    journalEntry.UpdatedBy = CurrentUserId;
+                }
+                else
+                {
+                    // Generate entry number for new entry
+                    var entryNumber = await GenerateEntryNumberAsync();
+
+                    journalEntry = new JournalEntry
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = TenantId,
+                        EntryNumber = entryNumber,
+                        Date = invoice.IssueDate.Date,
+                        ReferenceType = expectedRefType,
+                        ReferenceId = invoiceId,
+                        ProjectId = invoice.ProjectId,
+                        Description = $"Invoice {invoice.InvoiceNumber} - {invoice.Customer?.Name ?? "Customer"}",
+                        IsPosted = true,
+                        PostedAt = DateTime.UtcNow,
+                        PostedBy = CurrentUserId,
+                        CreatedAt = DateTime.UtcNow,
+                        CreatedBy = CurrentUserId
+                    };
+
+                    _context.JournalEntries.Add(journalEntry);
                 }
 
                 // Get required accounts (these should be configured in Chart of Accounts)
@@ -131,27 +164,6 @@ namespace fatortak.Services.AccountingPostingService
                     return false;
                 }
 
-                // Generate entry number
-                var entryNumber = await GenerateEntryNumberAsync();
-
-                var journalEntry = new JournalEntry
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = TenantId,
-                    EntryNumber = entryNumber,
-                    Date = invoice.IssueDate.Date,
-                    ReferenceType = isSalesInvoice ? JournalEntryReferenceType.Invoice : JournalEntryReferenceType.PurchaseInvoice,
-                    ReferenceId = invoiceId,
-                    ProjectId = invoice.ProjectId,
-                    Description = $"Invoice {invoice.InvoiceNumber} - {invoice.Customer?.Name ?? "Customer"}",
-                    IsPosted = true, // Auto-post when created from business transaction
-                    PostedAt = DateTime.UtcNow,
-                    PostedBy = CurrentUserId,
-                    CreatedAt = DateTime.UtcNow,
-                    CreatedBy = CurrentUserId
-                };
-
-                _context.JournalEntries.Add(journalEntry);
 
                 if (isSalesInvoice)
                 {
@@ -245,7 +257,7 @@ namespace fatortak.Services.AccountingPostingService
                 await _context.SaveChangesAsync();
                 if (transaction != null) await transaction.CommitAsync();
 
-                _logger.LogInformation("Successfully posted invoice {InvoiceId} as journal entry {EntryNumber}", invoiceId, entryNumber);
+                _logger.LogInformation("Successfully posted invoice {InvoiceId} as journal entry {EntryNumber}", invoiceId, journalEntry.EntryNumber);
                 return true;
             }
             catch (Exception ex)
