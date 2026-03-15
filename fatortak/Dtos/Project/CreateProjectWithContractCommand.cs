@@ -19,5 +19,9 @@ namespace fatortak.Dtos.Project
 
         public bool ActivateImmediately { get; set; }
         public decimal? Discount { get; set; }
+
+        public DateTime? CreatedAt { get; set; }
+        public bool IncludeVat { get; set; }
+        public decimal VatRate { get; set; }
     }
 }

@@ -249,10 +249,14 @@ namespace fatortak
                             expenseCategoryService.SeedDefaultCategoriesAsync(tenant.Id).GetAwaiter().GetResult();
                         }
                         Console.WriteLine("Expense Categories backfilled successfully for all tenants.");
+
+                        // Fix Previous Invoice Numbers
+                        Seeding.InvoiceNumberSeeder.FixInvoiceNumbersAsync(context).GetAwaiter().GetResult();
+                        Console.WriteLine("Invoices re-sequenced successfully for all tenants.");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error seeding Chart of Accounts or Categories: {ex.Message}");
+                        Console.WriteLine($"Error seeding Chart of Accounts, Categories, or Invoices: {ex.Message}");
                     }
                 }
             }

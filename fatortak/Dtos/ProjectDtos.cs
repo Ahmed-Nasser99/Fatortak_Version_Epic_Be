@@ -24,6 +24,8 @@ namespace fatortak.Dtos
         public decimal TotalPaid { get; set; }
         public decimal NetProfit { get; set; }
         public decimal Discount { get; set; }
+        public bool IncludeVat { get; set; }
+        public decimal VatRate { get; set; }
         public List<ProjectLineDto> ProjectLines { get; set; } = new List<ProjectLineDto>();
     }
 

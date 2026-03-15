@@ -133,8 +133,9 @@ namespace fatortak.Services.InvoiceService
                     }
                 }
 
+                var lastInvoiceDtoBaseType = dto.InvoiceType ?? InvoiceTypes.Sell.ToString();
                 var lastInvoice = await _context.Invoices
-                    .Where(i => i.TenantId == TenantId)
+                    .Where(i => i.TenantId == TenantId && i.InvoiceType.ToLower() == lastInvoiceDtoBaseType.ToLower())
                     .OrderByDescending(i => i.CreatedAt)
                     .FirstOrDefaultAsync();
 
@@ -290,12 +291,22 @@ namespace fatortak.Services.InvoiceService
                 if (company == null)
                     return ServiceResult<InvoiceDto>.Failure("Company not found");
 
+                var lastInvoiceDtoBaseType = dto.InvoiceType ?? InvoiceTypes.Sell.ToString();
                 var lastInvoice = await _context.Invoices
-                    .Where(i => i.TenantId == TenantId)
+                    .Where(i => i.TenantId == TenantId && i.InvoiceType.ToLower() == lastInvoiceDtoBaseType.ToLower())
                     .OrderByDescending(i => i.CreatedAt)
                     .FirstOrDefaultAsync();
 
-                var invoiceNumber = !string.IsNullOrEmpty(dto.InvoiceNumber)
+                var isManualUnique = false;
+                if (!string.IsNullOrEmpty(dto.InvoiceNumber))
+                {
+                    isManualUnique = !await _context.Invoices.AnyAsync(i => 
+                        i.TenantId == TenantId && 
+                        i.InvoiceType.ToLower() == lastInvoiceDtoBaseType.ToLower() && 
+                        i.InvoiceNumber == dto.InvoiceNumber);
+                }
+
+                var invoiceNumber = isManualUnique
                     ? dto.InvoiceNumber
                     : GenerateInvoiceNumber(company.InvoicePrefix, lastInvoice?.InvoiceNumber);
 

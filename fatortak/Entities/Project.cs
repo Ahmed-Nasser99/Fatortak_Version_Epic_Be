@@ -33,6 +33,11 @@ namespace fatortak.Entities
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }
 
+        public bool IncludeVat { get; set; } = false;
+        
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal VatRate { get; set; } = 0.14m;
+
         // Computed property for convenience
         public bool IsInternal => CustomerId == null;
 

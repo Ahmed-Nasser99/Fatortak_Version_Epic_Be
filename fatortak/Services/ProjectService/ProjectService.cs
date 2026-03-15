@@ -272,7 +272,9 @@ namespace fatortak.Services.ProjectService
                     Notes = command.Notes,
                     Status = command.ActivateImmediately ? ProjectStatus.Active : ProjectStatus.Draft,
                     Discount = command.Discount ?? 0,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = command.CreatedAt ?? DateTime.UtcNow,
+                    IncludeVat = command.IncludeVat,
+                    VatRate = command.VatRate
                 };
 
                 await _context.Projects.AddAsync(project);
@@ -383,6 +385,9 @@ namespace fatortak.Services.ProjectService
                 project.PaymentTerms = command.PaymentTerms;
                 project.Notes = command.Notes;
                 project.Discount = discountAmt;
+                if (command.CreatedAt.HasValue) project.CreatedAt = command.CreatedAt.Value;
+                project.IncludeVat = command.IncludeVat;
+                project.VatRate = command.VatRate;
                 project.UpdatedAt = DateTime.UtcNow;
 
                 // Create new ProjectLines
@@ -416,10 +421,11 @@ namespace fatortak.Services.ProjectService
                 if (relatedInvoice != null)
                 {
                     // Update Invoice header
+                    decimal calcVat = project.IncludeVat ? newContractValue * project.VatRate : 0;
                     relatedInvoice.Subtotal = newContractValue;
                     relatedInvoice.TotalDiscount = discountAmt;
-                    relatedInvoice.VatAmount = 0; // Reset VAT since all new project items have VatRate = 0
-                    relatedInvoice.Total = newContractValue - discountAmt + relatedInvoice.Benefits.GetValueOrDefault();
+                    relatedInvoice.VatAmount = calcVat;
+                    relatedInvoice.Total = newContractValue + calcVat - discountAmt + relatedInvoice.Benefits.GetValueOrDefault();
                     relatedInvoice.Notes = command.Notes;
                     relatedInvoice.Terms = command.PaymentTerms;
                     relatedInvoice.UpdatedAt = DateTime.UtcNow;
@@ -441,7 +447,7 @@ namespace fatortak.Services.ProjectService
                             Description = lineDto.Description,
                             Quantity = (int)lineDto.Quantity, // Cast to match InvoiceItem which uses int typically, though ideally it should be decimal
                             UnitPrice = lineDto.UnitPrice,
-                            VatRate = 0, // Default to 0, user can edit invoice later if needed
+                            VatRate = project.IncludeVat ? project.VatRate : 0,
                             Discount = 0,
                             LineTotal = lineTotal
                         };
@@ -549,9 +555,9 @@ namespace fatortak.Services.ProjectService
                 ProjectId = project.Id,
                 Status = InvoiceStatus.Posted.ToString(),
                 Subtotal = project.ContractValue,
-                VatAmount = 0,
+                VatAmount = project.IncludeVat ? project.ContractValue * project.VatRate : 0,
                 TotalDiscount = project.Discount,
-                Total = project.ContractValue - project.Discount,
+                Total = project.ContractValue + (project.IncludeVat ? project.ContractValue * project.VatRate : 0) - project.Discount,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -568,7 +574,7 @@ namespace fatortak.Services.ProjectService
                     Description = pl.Description,
                     Quantity = (int)pl.Quantity,
                     UnitPrice = pl.UnitPrice,
-                    VatRate = 0,
+                    VatRate = project.IncludeVat ? project.VatRate : 0,
                     LineTotal = pl.LineTotal
                 };
                 _context.InvoiceItems.Add(invoiceItem);
@@ -665,6 +671,8 @@ namespace fatortak.Services.ProjectService
                 Discount = project.Discount,
                 IsInternal = project.IsInternal,
                 CreatedAt = project.CreatedAt,
+                IncludeVat = project.IncludeVat,
+                VatRate = project.VatRate,
                 ProjectLines = project.ProjectLines?.Select(l => new ProjectLineDto
                 {
                     Id = l.Id,
